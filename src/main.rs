@@ -1,7 +1,16 @@
-mod trials;
 mod regex;
+mod trials;
+
+use std::env;
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+
+    match regex::regex_parser::parse(&args[1]) {
+        Ok(p) => println!("parsed: {:?}", p),
+        Err(e) => println!("parse err: {}", e),
+    }
+
     //regex::main()
 
     //let num_block = 4;

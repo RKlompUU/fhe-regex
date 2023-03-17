@@ -16,7 +16,7 @@ pub fn main() {
 
     // Define the Hamming weight function
     // f: x -> sum of the bits of x
-    let f = |x:u64| x.count_ones() as u64;
+    let f = |x: u64| x.count_ones() as u64;
 
     // Generate the accumulator for the function
     let acc = server_key.generate_accumulator(f);

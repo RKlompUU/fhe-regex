@@ -8,3 +8,6 @@ edition = "2021"
 [dependencies]
 # tfhe = { version = "0.1.11", features = ["boolean", "shortint", "x86_64-unix"] }
 tfhe = { git = "https://github.com/zama-ai/tfhe-rs.git", features = ["boolean", "integer", "shortint", "x86_64-unix"] }
+combine = "*"
+anyhow = "*"
+nom = "*"
