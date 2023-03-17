@@ -4,9 +4,9 @@ use tfhe::shortint::parameters::PARAM_MESSAGE_2_CARRY_2;
 // based on https://medium.com/optalysys/encrypted-search-using-fully-homomorphic-encryption-4431e987ba40
 // but encodes with 8b integers instead of booleans
 
-type StringCiphertext = Vec<RadixCiphertext>;
+pub type StringCiphertext = Vec<RadixCiphertext>;
 
-fn create_trivial_radix(server_key: &ServerKey, msg: u64, block_size: usize, num_blocks: usize) -> RadixCiphertext {
+pub fn create_trivial_radix(server_key: &ServerKey, msg: u64, block_size: usize, num_blocks: usize) -> RadixCiphertext {
     let shortkey = tfhe::shortint::ServerKey::from(server_key.clone());
 
     let mut vec_res = Vec::with_capacity(num_blocks);
@@ -24,11 +24,11 @@ fn create_trivial_radix(server_key: &ServerKey, msg: u64, block_size: usize, num
     RadixCiphertext::from(vec_res)
 }
 
-fn encrypt_str(client_key: &RadixClientKey, s: &str) -> StringCiphertext {
+pub fn encrypt_str(client_key: &RadixClientKey, s: &str) -> StringCiphertext {
     s.as_bytes().iter().map(|byte| client_key.encrypt(*byte as u64)).collect()
 }
 
-fn trivial_encrypt_str(server_key: &ServerKey, s: &str, block_size: usize, num_blocks: usize) -> StringCiphertext {
+pub fn trivial_encrypt_str(server_key: &ServerKey, s: &str, block_size: usize, num_blocks: usize) -> StringCiphertext {
     s.as_bytes().iter().map(|byte| create_trivial_radix(server_key, *byte as u64, block_size, num_blocks)).collect()
 }
 

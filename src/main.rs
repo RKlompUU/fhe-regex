@@ -4,7 +4,8 @@ mod integer;
 mod bool;
 mod str;
 mod str2;
+mod regex;
 
 fn main() {
-    str2::main()
+    regex::main()
 }
