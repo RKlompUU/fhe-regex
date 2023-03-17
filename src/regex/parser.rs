@@ -4,8 +4,6 @@ use combine::*;
 
 use std::fmt;
 
-// grammar applied from: https://matt.might.net/articles/parsing-regex-with-recursive-descent/
-
 pub(crate) enum RegExpr {
     SOF,
     EOF,
@@ -69,6 +67,8 @@ pub(crate) fn parse(pattern: &str) -> Result<RegExpr> {
 
     Ok(parsed)
 }
+
+// based on grammar from: https://matt.might.net/articles/parsing-regex-with-recursive-descent/
 
 parser! {
     fn regex[Input]()(Input) -> RegExpr

@@ -1,3 +1,5 @@
+use crate::regex::parser::{parse, RegExpr};
+use anyhow::Result;
 use tfhe::integer::{gen_keys_radix, RadixCiphertext, RadixClientKey, ServerKey};
 use tfhe::shortint::parameters::PARAM_MESSAGE_2_CARRY_2;
 
@@ -6,8 +8,44 @@ use crate::trials::str2::{
 };
 
 #[derive(Clone)]
-struct RegexEngine {
+pub struct RegexEngine {
     ct_content: StringCiphertext,
+    sk: ServerKey,
+}
+
+impl RegexEngine {
+    pub fn new(ct_content: StringCiphertext, sk: ServerKey) -> Self {
+        Self { ct_content, sk }
+    }
+
+    pub fn has_match(&self, pattern: &str) -> Result<RadixCiphertext> {
+        let re = parse(pattern)?;
+        println!("parsed re: {:?}", re);
+
+        Ok(self.process(&re, 0))
+    }
+
+    fn process(&self, re: &RegExpr, mut ct_pos: usize) -> RadixCiphertext {
+        match re {
+            RegExpr::Char { c } => self.eq(
+                &self.ct_content[ct_pos],
+                &create_trivial_radix(&self.sk, *c as u64, 2, 4),
+            ),
+            RegExpr::Seq { seq } => {
+                let res = self.process(&seq[0], ct_pos);
+                for re in &seq[1..] {
+                    ct_pos += 1; // obv. wrong, todo
+                    self.sk.unchecked_bitand(&res, &self.process(re, ct_pos));
+                }
+                res
+            }
+            _ => panic!("todo"),
+        }
+    }
+
+    fn eq(&self, a: &RadixCiphertext, b: &RadixCiphertext) -> RadixCiphertext {
+        self.sk.unchecked_eq(a, b)
+    }
 }
 
 fn between(
