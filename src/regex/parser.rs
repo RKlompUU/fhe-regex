@@ -9,7 +9,8 @@ pub(crate) enum RegExpr {
     SOF,
     EOF,
     Char { c: u8 },
-    Range { from: u8, to: u8 },
+    Between { from: u8, to: u8 },
+    Range { cs: Vec<u8> },
     Either { l_re: Box<RegExpr>, r_re: Box<RegExpr> },
     Optional { opt_re: Box<RegExpr> },
     Seq { seq: Vec<RegExpr> },
@@ -21,11 +22,16 @@ impl fmt::Debug for RegExpr {
             Self::SOF => write!(f, "^"),
             Self::EOF => write!(f, "$"),
             Self::Char { c } => write!(f, "{}", std::str::from_utf8(&vec![*c]).unwrap()),
-            Self::Range { from, to } => write!(
+            Self::Between { from, to } => write!(
                 f,
-                "[{},{}]",
+                "[{}->{}]",
                 char::from_digit(*from as u32, 10).unwrap(),
                 char::from_digit(*to as u32, 10).unwrap()
+            ),
+            Self::Range { cs } => write!(
+                f,
+                "[{:?}]",
+                cs.iter().map(|c|char::from_digit(*c as u32, 10).unwrap()),
             ),
             Self::Either { l_re, r_re } => {
                 write!(f, "(")?;

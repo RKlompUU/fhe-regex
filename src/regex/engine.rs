@@ -9,13 +9,13 @@ use crate::trials::str2::{
 
 #[derive(Clone)]
 pub struct RegexEngine {
-    ct_content: StringCiphertext,
+    content: StringCiphertext,
     sk: ServerKey,
 }
 
 impl RegexEngine {
-    pub fn new(ct_content: StringCiphertext, sk: ServerKey) -> Self {
-        Self { ct_content, sk }
+    pub fn new(content: StringCiphertext, sk: ServerKey) -> Self {
+        Self { content, sk }
     }
 
     pub fn has_match(&self, pattern: &str) -> Result<RadixCiphertext> {
@@ -32,39 +32,39 @@ impl RegexEngine {
     }
 
     // this is a list monad procedure
-    fn process(&self, re: &RegExpr, ct_pos: usize) -> Vec<(RadixCiphertext, usize)> {
-        if ct_pos >= self.ct_content.len() {
-            return vec![(self.new_false(), ct_pos)];
+    fn process(&self, re: &RegExpr, c_pos: usize) -> Vec<(RadixCiphertext, usize)> {
+        if c_pos >= self.content.len() {
+            return vec![(self.new_false(), c_pos)];
         }
-        info!("program pointer: re={:?}, ct_pos={}", re, ct_pos);
+        info!("program pointer: regex={:?}, content pos={}", re, c_pos);
         match re {
             RegExpr::Char { c } => vec![(
                 self.eq(
-                    &self.ct_content[ct_pos],
+                    &self.content[c_pos],
                     &create_trivial_radix(&self.sk, *c as u64, 2, 4),
                 ),
-                ct_pos + 1,
+                c_pos + 1,
             )],
             RegExpr::Either { l_re, r_re } => {
-                let mut res = self.process(l_re, ct_pos);
-                res.append(&mut self.process(r_re, ct_pos));
+                let mut res = self.process(l_re, c_pos);
+                res.append(&mut self.process(r_re, c_pos));
                 res
             }
             RegExpr::Optional { opt_re } => {
-                let mut res = self.process(opt_re, ct_pos);
-                res.push((self.new_true(), ct_pos));
+                let mut res = self.process(opt_re, c_pos);
+                res.push((self.new_true(), c_pos));
                 res
             }
             RegExpr::Seq { seq } => {
                 seq[1..]
                     .iter()
-                    .fold(self.process(&seq[0], ct_pos), |continuations, seq_re| {
+                    .fold(self.process(&seq[0], c_pos), |continuations, seq_re| {
                         continuations
                             .into_iter()
-                            .flat_map(|(res, ct_pos)| {
-                                self.process(seq_re, ct_pos).into_iter().map(
-                                    move |(res_, ct_pos_)| {
-                                        (self.sk.unchecked_bitand(&res, &res_), ct_pos_)
+                            .flat_map(|(res, c_pos)| {
+                                self.process(seq_re, c_pos).into_iter().map(
+                                    move |(res_, c_pos_)| {
+                                        (self.sk.unchecked_bitand(&res, &res_), c_pos_)
                                     },
                                 )
                             })
