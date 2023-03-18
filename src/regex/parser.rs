@@ -10,8 +10,8 @@ pub(crate) enum RegExpr {
     EOF,
     Char { c: u8 },
     Range { from: u8, to: u8 },
-    Either { l: Box<RegExpr>, r: Box<RegExpr> },
-    Optional { re: Box<RegExpr> },
+    Either { l_re: Box<RegExpr>, r_re: Box<RegExpr> },
+    Optional { opt_re: Box<RegExpr> },
     Seq { seq: Vec<RegExpr> },
 }
 
@@ -27,15 +27,15 @@ impl fmt::Debug for RegExpr {
                 char::from_digit(*from as u32, 10).unwrap(),
                 char::from_digit(*to as u32, 10).unwrap()
             ),
-            Self::Either { l, r } => {
+            Self::Either { l_re, r_re } => {
                 write!(f, "(")?;
-                l.fmt(f)?;
+                l_re.fmt(f)?;
                 write!(f, "|")?;
-                r.fmt(f)?;
+                r_re.fmt(f)?;
                 write!(f, ")")
             }
-            Self::Optional { re } => {
-                re.fmt(f)?;
+            Self::Optional { opt_re } => {
+                opt_re.fmt(f)?;
                 write!(f, "?")
             }
             Self::Seq { seq } => {
@@ -86,9 +86,9 @@ where
 {
     choice((
         attempt(
-            (term(), byte::byte(b'|'), regex()).map(|(l, _, r)| RegExpr::Either {
-                l: Box::new(l),
-                r: Box::new(r),
+            (term(), byte::byte(b'|'), regex()).map(|(l_re, _, r_re)| RegExpr::Either {
+                l_re: Box::new(l_re),
+                r_re: Box::new(r_re),
             }),
         ),
         term(),
@@ -111,7 +111,7 @@ where
     choice((
         attempt((
             atom(),
-            byte::byte(b'?')).map(|(re, _)| RegExpr::Optional { re: Box::new(re) }),
+            byte::byte(b'?')).map(|(re, _)| RegExpr::Optional { opt_re: Box::new(re) }),
         ),
         atom(),
     ))

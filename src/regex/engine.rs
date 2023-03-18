@@ -13,12 +13,6 @@ pub struct RegexEngine {
     sk: ServerKey,
 }
 
-#[derive(Debug)]
-struct ProgramPointer {
-    re: RegExpr,
-    ct_pos: usize,
-}
-
 impl RegexEngine {
     pub fn new(ct_content: StringCiphertext, sk: ServerKey) -> Self {
         Self { ct_content, sk }
@@ -28,54 +22,54 @@ impl RegexEngine {
         let re = parse(pattern)?;
         println!("parsed re: {:?}", re);
 
-        let branches = self.process(ProgramPointer { re, ct_pos: 0 });
-        let res = branches[1..].iter().fold(branches[0].0.clone(), |res, (branch_res, _)|
-            self.sk.unchecked_bitor(&res, branch_res)
-        );
+        let branches = self.process(&re, 0);
+        let res = branches[1..]
+            .iter()
+            .fold(branches[0].0.clone(), |res, (branch_res, _)| {
+                self.sk.unchecked_bitor(&res, branch_res)
+            });
         Ok(res)
     }
 
     // this is a list monad procedure
-    fn process(&self, pp: ProgramPointer) -> Vec<(RadixCiphertext, usize)> {
-        if pp.ct_pos >= self.ct_content.len() {
-            return vec![(self.new_false(), pp.ct_pos)];
+    fn process(&self, re: &RegExpr, ct_pos: usize) -> Vec<(RadixCiphertext, usize)> {
+        if ct_pos >= self.ct_content.len() {
+            return vec![(self.new_false(), ct_pos)];
         }
-        info!("{:?}", pp);
-        match &pp.re {
+        info!("program pointer: re={:?}, ct_pos={}", re, ct_pos);
+        match re {
             RegExpr::Char { c } => vec![(
                 self.eq(
-                    &self.ct_content[pp.ct_pos],
+                    &self.ct_content[ct_pos],
                     &create_trivial_radix(&self.sk, *c as u64, 2, 4),
                 ),
-                pp.ct_pos + 1,
+                ct_pos + 1,
             )],
-            RegExpr::Optional { re } => {
-                let mut res = self.process(ProgramPointer { re: *re.clone(), ct_pos: pp.ct_pos });
-                res.push((self.new_true(), pp.ct_pos));
+            RegExpr::Either { l_re, r_re } => {
+                let mut res = self.process(l_re, ct_pos);
+                res.append(&mut self.process(r_re, ct_pos));
                 res
-            },
+            }
+            RegExpr::Optional { opt_re } => {
+                let mut res = self.process(opt_re, ct_pos);
+                res.push((self.new_true(), ct_pos));
+                res
+            }
             RegExpr::Seq { seq } => {
-                seq[1..].iter().fold(
-                    self.process(ProgramPointer {
-                        re: seq[0].clone(),
-                        ct_pos: pp.ct_pos,
-                    }),
-                    |continuations, seq_re| {
+                seq[1..]
+                    .iter()
+                    .fold(self.process(&seq[0], ct_pos), |continuations, seq_re| {
                         continuations
                             .into_iter()
                             .flat_map(|(res, ct_pos)| {
-                                self.process(ProgramPointer {
-                                    re: seq_re.clone(),
-                                    ct_pos,
-                                })
-                                .into_iter()
-                                .map(move |(res_, ct_pos_)| {
-                                    (self.sk.unchecked_bitand(&res, &res_), ct_pos_)
-                                })
+                                self.process(seq_re, ct_pos).into_iter().map(
+                                    move |(res_, ct_pos_)| {
+                                        (self.sk.unchecked_bitand(&res, &res_), ct_pos_)
+                                    },
+                                )
                             })
                             .collect()
-                    },
-                )
+                    })
             }
             _ => panic!("todo"),
         }
