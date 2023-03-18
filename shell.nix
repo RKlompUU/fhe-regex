@@ -1,9 +1,15 @@
+{ pkgs ? import <nixpkgs> {
+    overlays = [
+      (import (fetchTarball "https://github.com/oxalica/rust-overlay/archive/master.tar.gz"))
+    ];
+  }
+}:
 let
-  # Pinned nixpkgs, deterministic. Last updated: 2/12/21.
-  #pkgs = import (fetchTarball("https://github.com/NixOS/nixpkgs/archive/a58a0b5098f0c2a389ee70eb69422a052982d990.tar.gz")) {};
-
-  # Rolling updates, not deterministic.
-  pkgs = import (fetchTarball("channel:nixpkgs-unstable")) {};
-in pkgs.mkShell {
-  buildInputs = with pkgs; [ cargo rustc rustfmt ];
+in
+pkgs.mkShell {
+  buildInputs = with pkgs; [
+    (rust-bin.stable.latest.default.override {
+      extensions = ["rust-src"];
+    })
+  ];
 }

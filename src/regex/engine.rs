@@ -13,6 +13,12 @@ pub struct RegexEngine {
     sk: ServerKey,
 }
 
+#[derive(Debug)]
+struct ProgramPointer {
+    re: RegExpr,
+    ct_pos: usize,
+}
+
 impl RegexEngine {
     pub fn new(ct_content: StringCiphertext, sk: ServerKey) -> Self {
         Self { ct_content, sk }
@@ -22,22 +28,45 @@ impl RegexEngine {
         let re = parse(pattern)?;
         println!("parsed re: {:?}", re);
 
-        Ok(self.process(&re, 0))
+        Ok(self.process(ProgramPointer { re, ct_pos: 0 })[0].0.clone())
     }
 
-    fn process(&self, re: &RegExpr, mut ct_pos: usize) -> RadixCiphertext {
-        match re {
-            RegExpr::Char { c } => self.eq(
-                &self.ct_content[ct_pos],
-                &create_trivial_radix(&self.sk, *c as u64, 2, 4),
-            ),
+    // this is a list monad procedure
+    fn process(&self, pp: ProgramPointer) -> Vec<(RadixCiphertext, usize)> {
+        if pp.ct_pos >= self.ct_content.len() {
+            return vec![(create_trivial_radix(&self.sk, 0, 2, 4), pp.ct_pos)];
+        }
+        info!("{:?}", pp);
+        match &pp.re {
+            RegExpr::Char { c } => vec![(
+                self.eq(
+                    &self.ct_content[pp.ct_pos],
+                    &create_trivial_radix(&self.sk, *c as u64, 2, 4),
+                ),
+                pp.ct_pos + 1,
+            )],
             RegExpr::Seq { seq } => {
-                let res = self.process(&seq[0], ct_pos);
-                for re in &seq[1..] {
-                    ct_pos += 1; // obv. wrong, todo
-                    self.sk.unchecked_bitand(&res, &self.process(re, ct_pos));
-                }
-                res
+                seq[1..].iter().fold(
+                    self.process(ProgramPointer {
+                        re: seq[0].clone(),
+                        ct_pos: pp.ct_pos,
+                    }),
+                    |continuations, seq_re| {
+                        continuations
+                            .into_iter()
+                            .flat_map(|(res, ct_pos)| {
+                                self.process(ProgramPointer {
+                                    re: seq_re.clone(),
+                                    ct_pos,
+                                })
+                                .into_iter()
+                                .map(move |(res_, ct_pos_)| {
+                                    (self.sk.unchecked_bitand(&res, &res_), ct_pos_)
+                                })
+                            })
+                            .collect()
+                    },
+                )
             }
             _ => panic!("todo"),
         }

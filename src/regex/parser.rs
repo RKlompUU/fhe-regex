@@ -4,6 +4,7 @@ use combine::*;
 
 use std::fmt;
 
+#[derive(Clone)]
 pub(crate) enum RegExpr {
     SOF,
     EOF,

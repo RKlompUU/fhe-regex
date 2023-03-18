@@ -11,3 +11,5 @@ tfhe = { git = "https://github.com/zama-ai/tfhe-rs.git", features = ["boolean", 
 combine = "*"
 anyhow = "*"
 nom = "*"
+env_logger = "*"
+log = "*"
