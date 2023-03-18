@@ -28,13 +28,17 @@ impl RegexEngine {
         let re = parse(pattern)?;
         println!("parsed re: {:?}", re);
 
-        Ok(self.process(ProgramPointer { re, ct_pos: 0 })[0].0.clone())
+        let branches = self.process(ProgramPointer { re, ct_pos: 0 });
+        let res = branches[1..].iter().fold(branches[0].0.clone(), |res, (branch_res, _)|
+            self.sk.unchecked_bitor(&res, branch_res)
+        );
+        Ok(res)
     }
 
     // this is a list monad procedure
     fn process(&self, pp: ProgramPointer) -> Vec<(RadixCiphertext, usize)> {
         if pp.ct_pos >= self.ct_content.len() {
-            return vec![(create_trivial_radix(&self.sk, 0, 2, 4), pp.ct_pos)];
+            return vec![(self.new_false(), pp.ct_pos)];
         }
         info!("{:?}", pp);
         match &pp.re {
@@ -45,6 +49,11 @@ impl RegexEngine {
                 ),
                 pp.ct_pos + 1,
             )],
+            RegExpr::Optional { re } => {
+                let mut res = self.process(ProgramPointer { re: *re.clone(), ct_pos: pp.ct_pos });
+                res.push((self.new_true(), pp.ct_pos));
+                res
+            },
             RegExpr::Seq { seq } => {
                 seq[1..].iter().fold(
                     self.process(ProgramPointer {
@@ -74,6 +83,13 @@ impl RegexEngine {
 
     fn eq(&self, a: &RadixCiphertext, b: &RadixCiphertext) -> RadixCiphertext {
         self.sk.unchecked_eq(a, b)
+    }
+
+    fn new_false(&self) -> RadixCiphertext {
+        create_trivial_radix(&self.sk, 0, 2, 4)
+    }
+    fn new_true(&self) -> RadixCiphertext {
+        create_trivial_radix(&self.sk, 1, 2, 4)
     }
 }
 

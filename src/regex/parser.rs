@@ -37,7 +37,7 @@ impl fmt::Debug for RegExpr {
             Self::Optional { re } => {
                 re.fmt(f)?;
                 write!(f, "?")
-            },
+            }
             Self::Seq { seq } => {
                 write!(f, "<")?;
                 for re in seq {
@@ -108,7 +108,13 @@ where
     Input: Stream<Token = u8>,
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
 {
-    atom()
+    choice((
+        attempt((
+            atom(),
+            byte::byte(b'?')).map(|(re, _)| RegExpr::Optional { re: Box::new(re) }),
+        ),
+        atom(),
+    ))
 }
 
 fn atom<Input>() -> impl Parser<Input, Output = RegExpr>
