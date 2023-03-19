@@ -12,6 +12,13 @@ fn main() {
     env_logger::init_from_env(env);
 
     let args: Vec<String> = env::args().collect();
+    let content = &args[1];
+    let pattern = &args[2];
 
-    regex::main(&args[1], &args[2])
+    match crate::regex::parser::parse(pattern) {
+        Ok(p) => info!("parsed: {:?}", p),
+        Err(e) => panic!("failed to parse: {}", e),
+    };
+
+    regex::main(content, pattern)
 }

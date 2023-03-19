@@ -8,12 +8,31 @@ use std::fmt;
 pub(crate) enum RegExpr {
     SOF,
     EOF,
-    Char { c: u8 },
-    Between { from: u8, to: u8 },
-    Range { cs: Vec<u8> },
-    Either { l_re: Box<RegExpr>, r_re: Box<RegExpr> },
-    Optional { opt_re: Box<RegExpr> },
-    Seq { seq: Vec<RegExpr> },
+    Char {
+        c: u8,
+    },
+    AnyChar,
+    Between {
+        from: u8,
+        to: u8,
+    },
+    Range {
+        cs: Vec<u8>,
+    },
+    Either {
+        l_re: Box<RegExpr>,
+        r_re: Box<RegExpr>,
+    },
+    Optional {
+        opt_re: Box<RegExpr>,
+    },
+    Seq {
+        seq: Vec<RegExpr>,
+    },
+}
+
+fn u8_to_char(c: u8) -> char {
+    char::from_u32(c as u32).unwrap()
 }
 
 impl fmt::Debug for RegExpr {
@@ -21,17 +40,18 @@ impl fmt::Debug for RegExpr {
         match self {
             Self::SOF => write!(f, "^"),
             Self::EOF => write!(f, "$"),
-            Self::Char { c } => write!(f, "{}", std::str::from_utf8(&vec![*c]).unwrap()),
+            Self::Char { c } => write!(f, "{}", u8_to_char(*c)),
+            Self::AnyChar => write!(f, "."),
             Self::Between { from, to } => write!(
                 f,
                 "[{}->{}]",
-                char::from_digit(*from as u32, 10).unwrap(),
-                char::from_digit(*to as u32, 10).unwrap()
+                u8_to_char(*from),
+                u8_to_char(*to),
             ),
             Self::Range { cs } => write!(
                 f,
                 "[{:?}]",
-                cs.iter().map(|c|char::from_digit(*c as u32, 10).unwrap()),
+                cs.iter().map(|c| u8_to_char(*c)),
             ),
             Self::Either { l_re, r_re } => {
                 write!(f, "(")?;
@@ -115,15 +135,40 @@ where
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
 {
     choice((
-        attempt((
-            atom(),
-            byte::byte(b'?')).map(|(re, _)| RegExpr::Optional { opt_re: Box::new(re) }),
-        ),
+        attempt((atom(), byte::byte(b'?')).map(|(re, _)| RegExpr::Optional {
+            opt_re: Box::new(re),
+        })),
         atom(),
     ))
 }
 
 fn atom<Input>() -> impl Parser<Input, Output = RegExpr>
+where
+    Input: Stream<Token = u8>,
+    Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
+{
+    choice((
+        char(),
+        byte::byte(b'.').map(|_| RegExpr::AnyChar),
+        attempt(between(
+            b'[',
+            (byte::letter(), byte::byte(b'-'), byte::letter())
+                .map(|(from, _, to)| RegExpr::Between { from, to }),
+            b']',
+        )),
+        between(b'(', regex(), b')'),
+    ))
+}
+
+fn between<Input, P>(l: u8, p: P, r: u8) -> impl Parser<Input, Output = RegExpr>
+where
+    Input: Stream<Token = u8>,
+    P: Parser<Input, Output = RegExpr>,
+{
+    (byte::byte(l), p, byte::byte(r)).map(|(_, re, _)| re)
+}
+
+fn char<Input>() -> impl Parser<Input, Output = RegExpr>
 where
     Input: Stream<Token = u8>,
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
