@@ -5,7 +5,7 @@ use combine::*;
 
 use std::fmt;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub(crate) enum RegExpr {
     SOF,
     EOF,
@@ -33,7 +33,7 @@ pub(crate) enum RegExpr {
     Repeated {
         re: Box<RegExpr>,
         at_least: Option<usize>, // if None: no least limit, aka 0 times
-        at_most: Option<usize>, // if None: no most limit
+        at_most: Option<usize>,  // if None: no most limit
     },
     Seq {
         seq: Vec<RegExpr>,
@@ -182,22 +182,13 @@ where
     choice((
         byte(b'^').map(|_| RegExpr::SOF),
         byte(b'$').map(|_| RegExpr::EOF),
-        byte::letter().map(|c| RegExpr::Char { c }),
         byte(b'.').map(|_| RegExpr::AnyChar),
-        attempt(between(byte(b'['), byte(b']'), range())),
+        attempt(byte(b'\\').with(parser::token::any())).map(|c| RegExpr::Char { c }),
+        byte::letter().map(|c| RegExpr::Char { c }),
+        between(byte(b'['), byte(b']'), range()),
         between(byte(b'('), byte(b')'), regex()),
     ))
 }
-
-/*
-fn between<Input, P>(l: u8, p: P, r: u8) -> impl Parser<Input, Output = RegExpr>
-where
-    Input: Stream<Token = u8>,
-    P: Parser<Input, Output = RegExpr>,
-{
-    (byte(l), p, byte(r)).map(|(_, re, _)| re)
-}
-*/
 
 parser! {
     fn range[Input]()(Input) -> RegExpr
@@ -279,4 +270,43 @@ where
 
 fn parse_digits(digits: &[u8]) -> usize {
     std::str::from_utf8(digits).unwrap().parse().unwrap()
+}
+
+#[test]
+fn test_parser() {
+    struct TestCase {
+        name: String,
+        pattern: String,
+        exp: RegExpr,
+    }
+
+    let tcs: Vec<TestCase> = vec![
+        TestCase {
+            name: "test escaping, simple".to_string(),
+            pattern: "\\^".to_string(),
+            exp: RegExpr::Seq {
+                seq: vec![RegExpr::Char { c: b'^' }],
+            },
+        },
+        TestCase {
+            name: "test escaping".to_string(),
+            pattern: "^ca\\^b$".to_string(),
+            exp: RegExpr::Seq {
+                seq: vec![
+                    RegExpr::SOF,
+                    RegExpr::Char { c: b'c' },
+                    RegExpr::Char { c: b'a' },
+                    RegExpr::Char { c: b'^' },
+                    RegExpr::Char { c: b'b' },
+                    RegExpr::EOF,
+                ],
+            },
+        },
+    ];
+
+    for tc in tcs {
+        println!("test case: {}", tc.name);
+        let got = parse(&tc.pattern).unwrap();
+        assert_eq!(tc.exp, got);
+    }
 }
