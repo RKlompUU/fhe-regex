@@ -104,7 +104,7 @@ impl fmt::Debug for RegExpr {
 }
 
 pub(crate) fn parse(pattern: &str) -> Result<RegExpr> {
-    let (parsed, unparsed) = regex().parse(pattern.as_bytes())?;
+    let (parsed, unparsed) = between(byte(b'/'), byte(b'/'), regex()).parse(pattern.as_bytes())?;
     if !unparsed.is_empty() {
         return Err(anyhow!(
             "failed to parse regular expression, unexpected token at start of: {}",
@@ -306,7 +306,9 @@ fn test_parser() {
 
     for tc in tcs {
         println!("test case: {}", tc.name);
-        let got = parse(&tc.pattern).unwrap();
-        assert_eq!(tc.exp, got);
+        match parse(&tc.pattern) {
+            Ok(got) => assert_eq!(tc.exp, got),
+            Err(e) => panic!("{}", e),
+        }
     }
 }
