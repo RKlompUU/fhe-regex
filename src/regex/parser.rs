@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use combine::parser::byte;
+use combine::parser::byte::byte;
 use combine::*;
 
 use std::fmt;
@@ -28,6 +29,11 @@ pub(crate) enum RegExpr {
     },
     Optional {
         opt_re: Box<RegExpr>,
+    },
+    Repeated {
+        re: Box<RegExpr>,
+        at_least: Option<usize>,
+        at_most: Option<usize>,
     },
     Seq {
         seq: Vec<RegExpr>,
@@ -65,6 +71,22 @@ impl fmt::Debug for RegExpr {
                 r_re.fmt(f)?;
                 write!(f, ")")
             }
+            Self::Repeated {
+                re,
+                at_least,
+                at_most,
+            } => {
+                let stringify_opt_n = |opt_n: &Option<usize>| -> String {
+                    opt_n.map_or("*".to_string(), |n| format!("{:?}", n))
+                };
+                re.fmt(f)?;
+                write!(
+                    f,
+                    "{{{},{}}}",
+                    stringify_opt_n(at_least),
+                    stringify_opt_n(at_most)
+                )
+            }
             Self::Optional { opt_re } => {
                 opt_re.fmt(f)?;
                 write!(f, "?")
@@ -82,14 +104,7 @@ impl fmt::Debug for RegExpr {
 }
 
 pub(crate) fn parse(pattern: &str) -> Result<RegExpr> {
-    let mut parser = choice((
-        byte::byte(b'^').with(regex()).map(|x| RegExpr::Seq {
-            seq: vec![RegExpr::SOF, x],
-        }),
-        regex(),
-    ));
-
-    let (parsed, unparsed) = parser.parse(pattern.as_bytes())?;
+    let (parsed, unparsed) = regex().parse(pattern.as_bytes())?;
     if !unparsed.is_empty() {
         return Err(anyhow!(
             "failed to parse regular expression, unexpected token at start of: {}",
@@ -101,6 +116,17 @@ pub(crate) fn parse(pattern: &str) -> Result<RegExpr> {
 }
 
 // based on grammar from: https://matt.might.net/articles/parsing-regex-with-recursive-descent/
+//
+//  <regex> ::= <term> '|' <regex>
+//           |  <term>
+//
+//  <term> ::= { <factor> }
+//
+//  <factor> ::= <base> { '*' }
+//
+//  <base> ::= <char>
+//          |  '\' <char>
+//          |  '(' <regex> ')'
 
 parser! {
     fn regex[Input]()(Input) -> RegExpr
@@ -117,7 +143,7 @@ where
 {
     choice((
         attempt(
-            (term(), byte::byte(b'|'), regex()).map(|(l_re, _, r_re)| RegExpr::Either {
+            (term(), byte(b'|'), regex()).map(|(l_re, _, r_re)| RegExpr::Either {
                 l_re: Box::new(l_re),
                 r_re: Box::new(r_re),
             }),
@@ -140,9 +166,10 @@ where
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
 {
     choice((
-        attempt((atom(), byte::byte(b'?')).map(|(re, _)| RegExpr::Optional {
+        attempt((atom(), byte(b'?'))).map(|(re, _)| RegExpr::Optional {
             opt_re: Box::new(re),
-        })),
+        }),
+        attempt(repeated()),
         atom(),
     ))
 }
@@ -153,20 +180,24 @@ where
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
 {
     choice((
+        byte(b'^').map(|_| RegExpr::SOF),
+        byte(b'$').map(|_| RegExpr::EOF),
         byte::letter().map(|c| RegExpr::Char { c }),
-        byte::byte(b'.').map(|_| RegExpr::AnyChar),
-        attempt(between(b'[', range(), b']')),
-        between(b'(', regex(), b')'),
+        byte(b'.').map(|_| RegExpr::AnyChar),
+        attempt(between(byte(b'['), byte(b']'), range())),
+        between(byte(b'('), byte(b')'), regex()),
     ))
 }
 
+/*
 fn between<Input, P>(l: u8, p: P, r: u8) -> impl Parser<Input, Output = RegExpr>
 where
     Input: Stream<Token = u8>,
     P: Parser<Input, Output = RegExpr>,
 {
-    (byte::byte(l), p, byte::byte(r)).map(|(_, re, _)| re)
+    (byte(l), p, byte(r)).map(|(_, re, _)| re)
 }
+*/
 
 parser! {
     fn range[Input]()(Input) -> RegExpr
@@ -182,11 +213,70 @@ where
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
 {
     choice((
-        byte::byte(b'^').with(range()).map(|re| RegExpr::Not { re: Box::new(re) }),
+        byte(b'^')
+            .with(range())
+            .map(|re| RegExpr::Not { re: Box::new(re) }),
         attempt(
-            (byte::letter(), byte::byte(b'-'), byte::letter())
+            (byte::letter(), byte(b'-'), byte::letter())
                 .map(|(from, _, to)| RegExpr::Between { from, to }),
         ),
         many1(byte::letter()).map(|cs| RegExpr::Range { cs }),
     ))
+}
+
+fn repeated<Input>() -> impl Parser<Input, Output = RegExpr>
+where
+    Input: Stream<Token = u8>,
+    Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
+{
+    choice((
+        attempt((atom(), choice((byte(b'*'), byte(b'+'))))).map(|(re, c)| RegExpr::Repeated {
+            re: Box::new(re),
+            at_least: if c == b'*' { None } else { Some(1) },
+            at_most: None,
+        }),
+        attempt((
+            atom(),
+            between(byte(b'{'), byte(b'}'), many::<Vec<u8>, _, _>(byte::digit())),
+        ))
+        .map(|(re, repeat_digits)| {
+            let repeat = parse_digits(&repeat_digits);
+            RegExpr::Repeated {
+                re: Box::new(re),
+                at_least: Some(repeat),
+                at_most: Some(repeat),
+            }
+        }),
+        (
+            atom(),
+            between(
+                byte(b'{'),
+                byte(b'}'),
+                (
+                    many::<Vec<u8>, _, _>(byte::digit()),
+                    byte(b','),
+                    many::<Vec<u8>, _, _>(byte::digit()),
+                ),
+            ),
+        )
+            .map(
+                |(re, (at_least_digits, _, at_most_digits))| RegExpr::Repeated {
+                    re: Box::new(re),
+                    at_least: if at_least_digits.len() == 0 {
+                        None
+                    } else {
+                        Some(parse_digits(&at_least_digits))
+                    },
+                    at_most: if at_most_digits.len() == 0 {
+                        None
+                    } else {
+                        Some(parse_digits(&at_most_digits))
+                    },
+                },
+            ),
+    ))
+}
+
+fn parse_digits(digits: &[u8]) -> usize {
+    std::str::from_utf8(digits).unwrap().parse().unwrap()
 }

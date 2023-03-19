@@ -78,6 +78,51 @@ impl RegexEngine {
                     c_pos + 1,
                 )]
             }
+            RegExpr::Repeated {
+                re,
+                at_least,
+                at_most,
+            } => {
+                let at_least = at_least.unwrap_or(0);
+                let at_most = at_most.unwrap_or(self.content.len() - c_pos);
+
+                if at_least > at_most {
+                    return vec![];
+                }
+
+                let mut res = vec![
+                    if at_least == 0 {
+                        vec![(self.ct_true(), c_pos)]
+                    } else {
+                        vec![]
+                    },
+                    self.process(
+                        &(RegExpr::Seq {
+                            seq: std::iter::repeat(*re.clone())
+                                .take(std::cmp::max(1, at_least))
+                                .collect(),
+                        }),
+                        c_pos,
+                    ),
+                ];
+
+                for _ in (at_least + 1)..(at_most + 1) {
+                    res.push(
+                        res.last()
+                            .unwrap()
+                            .iter()
+                            .flat_map(|(branch_res, branch_c_pos)| {
+                                self.process(re, *branch_c_pos).into_iter().map(
+                                    |(branch_res_, branch_c_pos_)| {
+                                        (self.ct_and(branch_res, &branch_res_), branch_c_pos_)
+                                    },
+                                )
+                            })
+                            .collect(),
+                    );
+                }
+                res.into_iter().flatten().collect()
+            }
             RegExpr::Optional { opt_re } => {
                 let mut res = self.process(opt_re, c_pos);
                 res.push((self.ct_true(), c_pos));
