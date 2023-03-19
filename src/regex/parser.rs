@@ -12,6 +12,9 @@ pub(crate) enum RegExpr {
         c: u8,
     },
     AnyChar,
+    Not {
+        re: Box<RegExpr>,
+    },
     Between {
         from: u8,
         to: u8,
@@ -42,16 +45,18 @@ impl fmt::Debug for RegExpr {
             Self::EOF => write!(f, "$"),
             Self::Char { c } => write!(f, "{}", u8_to_char(*c)),
             Self::AnyChar => write!(f, "."),
-            Self::Between { from, to } => write!(
-                f,
-                "[{}->{}]",
-                u8_to_char(*from),
-                u8_to_char(*to),
-            ),
+            Self::Not { re } => {
+                write!(f, "[^")?;
+                re.fmt(f)?;
+                write!(f, "]")
+            }
+            Self::Between { from, to } => {
+                write!(f, "[{}->{}]", u8_to_char(*from), u8_to_char(*to),)
+            }
             Self::Range { cs } => write!(
                 f,
-                "[{:?}]",
-                cs.iter().map(|c| u8_to_char(*c)),
+                "[{}]",
+                cs.iter().map(|c| u8_to_char(*c)).collect::<String>(),
             ),
             Self::Either { l_re, r_re } => {
                 write!(f, "(")?;
@@ -148,14 +153,9 @@ where
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
 {
     choice((
-        char(),
+        byte::letter().map(|c| RegExpr::Char { c }),
         byte::byte(b'.').map(|_| RegExpr::AnyChar),
-        attempt(between(
-            b'[',
-            (byte::letter(), byte::byte(b'-'), byte::letter())
-                .map(|(from, _, to)| RegExpr::Between { from, to }),
-            b']',
-        )),
+        attempt(between(b'[', range(), b']')),
         between(b'(', regex(), b')'),
     ))
 }
@@ -168,10 +168,25 @@ where
     (byte::byte(l), p, byte::byte(r)).map(|(_, re, _)| re)
 }
 
-fn char<Input>() -> impl Parser<Input, Output = RegExpr>
+parser! {
+    fn range[Input]()(Input) -> RegExpr
+        where [Input: Stream<Token = u8>]
+        {
+            range_()
+        }
+}
+
+fn range_<Input>() -> impl Parser<Input, Output = RegExpr>
 where
     Input: Stream<Token = u8>,
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
 {
-    byte::letter().map(|c| RegExpr::Char { c })
+    choice((
+        byte::byte(b'^').with(range()).map(|re| RegExpr::Not { re: Box::new(re) }),
+        attempt(
+            (byte::letter(), byte::byte(b'-'), byte::letter())
+                .map(|(from, _, to)| RegExpr::Between { from, to }),
+        ),
+        many1(byte::letter()).map(|cs| RegExpr::Range { cs }),
+    ))
 }

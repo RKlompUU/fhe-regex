@@ -17,7 +17,11 @@ pub struct RegexEngine {
 
 impl RegexEngine {
     pub fn new(content: StringCiphertext, sk: ServerKey) -> Self {
-        Self { content, sk, ct_ops: 0 }
+        Self {
+            content,
+            sk,
+            ct_ops: 0,
+        }
     }
 
     pub fn has_match(&self, pattern: &str) -> Result<RadixCiphertext> {
@@ -44,13 +48,15 @@ impl RegexEngine {
         info!("program pointer: regex={:?}, content pos={}", re, c_pos);
         match re {
             RegExpr::Char { c } => vec![(
-                self.ct_eq(
-                    &self.content[c_pos],
-                    &self.ct_constant(*c),
-                ),
+                self.ct_eq(&self.content[c_pos], &self.ct_constant(*c)),
                 c_pos + 1,
             )],
             RegExpr::AnyChar => vec![(self.ct_true(), c_pos + 1)],
+            RegExpr::Not { re } => self
+                .process(re, c_pos)
+                .into_iter()
+                .map(|(branch_res, c_pos)| (self.ct_not(&branch_res), c_pos))
+                .collect(),
             RegExpr::Either { l_re, r_re } => {
                 let mut res = self.process(l_re, c_pos);
                 res.append(&mut self.process(r_re, c_pos));
@@ -61,6 +67,16 @@ impl RegexEngine {
                 let ge_from = self.ct_ge(content_char, &self.ct_constant(*from));
                 let le_to = self.ct_le(content_char, &self.ct_constant(*to));
                 vec![(self.ct_and(&ge_from, &le_to), c_pos + 1)]
+            }
+            RegExpr::Range { cs } => {
+                let content_char = &self.content[c_pos];
+                vec![(
+                    cs[1..].iter().fold(
+                        self.ct_eq(content_char, &self.ct_constant(cs[0])),
+                        |res, c| self.ct_or(&res, &self.ct_eq(content_char, &self.ct_constant(*c))),
+                    ),
+                    c_pos + 1,
+                )]
             }
             RegExpr::Optional { opt_re } => {
                 let mut res = self.process(opt_re, c_pos);
@@ -74,11 +90,9 @@ impl RegexEngine {
                         continuations
                             .into_iter()
                             .flat_map(|(res, c_pos)| {
-                                self.process(seq_re, c_pos).into_iter().map(
-                                    move |(res_, c_pos_)| {
-                                        (self.ct_and(&res, &res_), c_pos_)
-                                    },
-                                )
+                                self.process(seq_re, c_pos)
+                                    .into_iter()
+                                    .map(move |(res_, c_pos_)| (self.ct_and(&res, &res_), c_pos_))
                             })
                             .collect()
                     })
@@ -102,6 +116,9 @@ impl RegexEngine {
     fn ct_or(&self, a: &RadixCiphertext, b: &RadixCiphertext) -> RadixCiphertext {
         self.sk.unchecked_bitor(a, b)
     }
+    fn ct_not(&self, a: &RadixCiphertext) -> RadixCiphertext {
+        self.sk.unchecked_bitxor(a, &self.ct_constant(1))
+    }
 
     fn ct_false(&self) -> RadixCiphertext {
         self.ct_constant(0)
@@ -112,30 +129,4 @@ impl RegexEngine {
     fn ct_constant(&self, c: u8) -> RadixCiphertext {
         create_trivial_radix(&self.sk, c as u64, 2, 4)
     }
-}
-
-fn between(
-    server_key: &ServerKey,
-    content_char: &RadixCiphertext,
-    a: u8,
-    b: u8,
-) -> RadixCiphertext {
-    let ge_a = server_key.unchecked_ge(
-        content_char,
-        &create_trivial_radix(server_key, a as u64, 2, 4),
-    );
-    let le_b = server_key.unchecked_le(
-        content_char,
-        &create_trivial_radix(server_key, b as u64, 2, 4),
-    );
-
-    server_key.unchecked_bitand(&ge_a, &le_b)
-}
-
-fn not(server_key: &ServerKey, v: &RadixCiphertext) -> RadixCiphertext {
-    server_key.unchecked_bitxor(v, &create_trivial_radix(server_key, 1, 2, 4))
-}
-
-fn regex(server_key: &ServerKey, ct_content: &StringCiphertext, pattern: &str) -> RadixCiphertext {
-    not(server_key, &between(server_key, &ct_content[0], b'a', b'd'))
 }
