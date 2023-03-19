@@ -32,8 +32,8 @@ pub(crate) enum RegExpr {
     },
     Repeated {
         re: Box<RegExpr>,
-        at_least: Option<usize>,
-        at_most: Option<usize>,
+        at_least: Option<usize>, // if None: no least limit, aka 0 times
+        at_most: Option<usize>, // if None: no most limit
     },
     Seq {
         seq: Vec<RegExpr>,

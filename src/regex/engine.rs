@@ -27,7 +27,9 @@ impl RegexEngine {
     pub fn has_match(&self, pattern: &str) -> Result<RadixCiphertext> {
         let re = parse(pattern)?;
 
-        let branches = self.process(&re, 0);
+        let branches: Vec<(RadixCiphertext, usize)> = (0..self.content.len())
+            .flat_map(|i| self.process(&re, i))
+            .collect();
         if branches.len() <= 1 {
             return Ok(branches
                 .get(0)
@@ -42,10 +44,29 @@ impl RegexEngine {
 
     // this is a list monad procedure
     fn process(&self, re: &RegExpr, c_pos: usize) -> Vec<(RadixCiphertext, usize)> {
+        info!("program pointer: regex={:?}, content pos={}", re, c_pos);
+        match re {
+            RegExpr::SOF => {
+                if c_pos == 0 {
+                    return vec![(self.ct_true(), c_pos)];
+                } else {
+                    return vec![];
+                }
+            }
+            RegExpr::EOF => {
+                if c_pos == self.content.len() {
+                    return vec![(self.ct_true(), c_pos)];
+                } else {
+                    return vec![];
+                }
+            }
+            _ => (),
+        };
+
         if c_pos >= self.content.len() {
             return vec![];
         }
-        info!("program pointer: regex={:?}, content pos={}", re, c_pos);
+
         match re {
             RegExpr::Char { c } => vec![(
                 self.ct_eq(&self.content[c_pos], &self.ct_constant(*c)),
