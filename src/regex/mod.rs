@@ -1,5 +1,6 @@
 pub mod engine;
 pub mod parser;
+pub mod execution;
 
 use tfhe::integer::{gen_keys_radix, RadixCiphertext, RadixClientKey, ServerKey};
 use tfhe::shortint::parameters::PARAM_MESSAGE_2_CARRY_2;
