@@ -14,10 +14,7 @@ pub struct RegexEngine {
 
 impl RegexEngine {
     pub fn new(content: StringCiphertext, sk: ServerKey) -> Self {
-        Self {
-            content,
-            sk,
-        }
+        Self { content, sk }
     }
 
     pub fn has_match(&self, pattern: &str) -> Result<RadixCiphertext> {
@@ -30,18 +27,22 @@ impl RegexEngine {
 
         let mut exec = Execution::new(self.sk.clone());
 
-        if branches.len() <= 1 {
-            return Ok(branches
+        let res = if branches.len() <= 1 {
+            branches
                 .get(0)
-                .map_or(exec.ct_false(), |branch_res| branch_res.exec(&mut exec)));
-        }
-        let res = branches[1..]
-            .into_iter()
-            .fold(branches[0].exec(&mut exec), |res, branch| {
-                let branch_res = branch.exec(&mut exec);
-                exec.ct_or(&res, &branch_res)
-            });
-        info!("computation required {} ciphertext operations", exec.ct_operations_count());
+                .map_or(exec.ct_false(), |branch_res| branch_res.exec(&mut exec))
+        } else {
+            branches[1..]
+                .into_iter()
+                .fold(branches[0].exec(&mut exec), |res, branch| {
+                    let branch_res = branch.exec(&mut exec);
+                    exec.ct_or(&res, &branch_res)
+                })
+        };
+        info!(
+            "computation required {} ciphertext operations (cache hits: {})",
+            exec.ct_operations_count(), exec.cache_hits(),
+        );
         Ok(res)
     }
 
@@ -75,8 +76,10 @@ impl RegexEngine {
         match re.clone() {
             RegExpr::Char { c } => vec![(
                 DelayedExecution::new(Rc::new(move |exec| {
-                    info!("evaluation at {:?}: {:?}", c_pos, re_test);
-                    exec.ct_eq(&c_char, &exec.ct_constant(c))
+                    info!("evaluation at {:?}: {:?}", c_pos, &re_test);
+                    exec.with_cache((re_test.clone(), c_pos), |e| {
+                        e.ct_eq(&c_char, &e.ct_constant(c))
+                    })
                 })),
                 c_pos + 1,
             )],

@@ -5,7 +5,7 @@ use combine::*;
 
 use std::fmt;
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) enum RegExpr {
     SOF,
     EOF,

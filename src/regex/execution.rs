@@ -10,6 +10,7 @@ pub(crate) struct Execution {
     cache: HashMap<(RegExpr, usize), RadixCiphertext>,
 
     ct_ops: usize,
+    cache_hits: usize,
 }
 
 impl Execution {
@@ -18,11 +19,26 @@ impl Execution {
             sk,
             cache: HashMap::new(),
             ct_ops: 0,
+            cache_hits: 0,
         }
     }
 
     pub(crate) fn ct_operations_count(&self) -> usize {
         self.ct_ops
+    }
+
+    pub(crate) fn cache_hits(&self) -> usize {
+        self.cache_hits
+    }
+
+    pub(crate) fn with_cache(&mut self, ctx: (RegExpr, usize), f: impl Fn(&mut Self) -> RadixCiphertext) -> RadixCiphertext {
+        if let Some(res) = self.cache.get(&ctx) {
+            self.cache_hits += 1;
+            return res.clone();
+        }
+        let res = f(self);
+        self.cache.insert(ctx, res.clone());
+        res
     }
 
     pub(crate) fn ct_eq(&mut self, a: &RadixCiphertext, b: &RadixCiphertext) -> RadixCiphertext {
