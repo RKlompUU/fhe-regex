@@ -1,24 +1,37 @@
-use tfhe::integer::{RadixCiphertext, ServerKey};
-use std::rc::Rc;
 use std::collections::HashMap;
+use std::rc::Rc;
+use tfhe::integer::{RadixCiphertext, ServerKey};
 
-use crate::regex::parser::RegExpr;
+use crate::regex::parser::u8_to_char;
 use crate::trials::str2::create_trivial_radix;
+
+#[derive(Clone, PartialEq, Eq, Hash)]
+pub(crate) enum Executed {
+    Constant { c: u8 },
+    CtPos { at: usize },
+    And { a: Box<Executed>, b: Box<Executed> },
+    Or { a: Box<Executed>, b: Box<Executed> },
+    Equal { a: Box<Executed>, b: Box<Executed> },
+    GreaterOrEqual { a: Box<Executed>, b: Box<Executed> },
+    LessOrEqual { a: Box<Executed>, b: Box<Executed> },
+    Not { a: Box<Executed> },
+}
+type ExecutedResult = (RadixCiphertext, Executed);
+
+impl Executed {
+    pub(crate) fn ct_pos(at: usize) -> Self {
+        Executed::CtPos { at }
+    }
+}
 
 pub(crate) struct Execution {
     sk: ServerKey,
-    cache: HashMap<(RegExpr, usize), RadixCiphertext>,
+    cache: HashMap<Executed, RadixCiphertext>,
 
     ct_ops: usize,
     cache_hits: usize,
 }
-pub(crate)type LazyExecution = Rc<dyn Fn(&mut Execution) -> RadixCiphertext>;
-
-pub(crate) fn lazy_exec_cached(ctx: (RegExpr, usize), func: LazyExecution) -> LazyExecution  {
-    Rc::new(move |exec| {
-        exec.with_cache(ctx.clone(), func.clone())
-    })
-}
+pub(crate) type LazyExecution = Rc<dyn Fn(&mut Execution) -> ExecutedResult>;
 
 impl Execution {
     pub(crate) fn new(sk: ServerKey) -> Self {
@@ -38,49 +51,175 @@ impl Execution {
         self.cache_hits
     }
 
-    pub(crate) fn with_cache(&mut self, ctx: (RegExpr, usize), f: LazyExecution) -> RadixCiphertext {
-        if let Some(res) = self.cache.get(&ctx) {
-            self.cache_hits += 1;
-            return res.clone();
-        }
-        info!("evaluation at {:?}: {:?}", &ctx.1, &ctx.0);
-        let res = f(self);
-        self.cache.insert(ctx, res.clone());
-        res
+    pub(crate) fn ct_eq(&mut self, a: ExecutedResult, b: ExecutedResult) -> ExecutedResult {
+        let ctx = Executed::Equal {
+            a: Box::new(a.1.clone()),
+            b: Box::new(b.1.clone()),
+        };
+        self.with_cache(
+            ctx.clone(),
+            Rc::new(move |exec: &mut Execution| {
+                exec.ct_ops += 1;
+
+                (exec.sk.unchecked_eq(&a.0, &b.0), ctx.clone())
+            }),
+        )
     }
 
-    pub(crate) fn ct_eq(&mut self, a: &RadixCiphertext, b: &RadixCiphertext) -> RadixCiphertext {
-        self.ct_ops += 1;
-        self.sk.unchecked_eq(a, b)
-    }
-    pub(crate) fn ct_ge(&mut self, a: &RadixCiphertext, b: &RadixCiphertext) -> RadixCiphertext {
-        self.ct_ops += 1;
-        self.sk.unchecked_ge(a, b)
-    }
-    pub(crate) fn ct_le(&mut self, a: &RadixCiphertext, b: &RadixCiphertext) -> RadixCiphertext {
-        self.ct_ops += 1;
-        self.sk.unchecked_le(a, b)
-    }
-    pub(crate) fn ct_and(&mut self, a: &RadixCiphertext, b: &RadixCiphertext) -> RadixCiphertext {
-        self.ct_ops += 1;
-        self.sk.unchecked_bitand(a, b)
-    }
-    pub(crate) fn ct_or(&mut self, a: &RadixCiphertext, b: &RadixCiphertext) -> RadixCiphertext {
-        self.ct_ops += 1;
-        self.sk.unchecked_bitor(a, b)
-    }
-    pub(crate) fn ct_not(&mut self, a: &RadixCiphertext) -> RadixCiphertext {
-        self.ct_ops += 1;
-        self.sk.unchecked_bitxor(a, &self.ct_constant(1))
+    pub(crate) fn ct_ge(&mut self, a: ExecutedResult, b: ExecutedResult) -> ExecutedResult {
+        let ctx = Executed::GreaterOrEqual {
+            a: Box::new(a.1.clone()),
+            b: Box::new(b.1.clone()),
+        };
+        self.with_cache(
+            ctx.clone(),
+            Rc::new(move |exec| {
+                exec.ct_ops += 1;
+
+                (exec.sk.unchecked_ge(&a.0, &b.0), ctx.clone())
+            }),
+        )
     }
 
-    pub(crate) fn ct_false(&self) -> RadixCiphertext {
+    pub(crate) fn ct_le(&mut self, a: ExecutedResult, b: ExecutedResult) -> ExecutedResult {
+        let ctx = Executed::LessOrEqual {
+            a: Box::new(a.1.clone()),
+            b: Box::new(b.1.clone()),
+        };
+        self.with_cache(
+            ctx.clone(),
+            Rc::new(move |exec| {
+                exec.ct_ops += 1;
+
+                (exec.sk.unchecked_le(&a.0, &b.0), ctx.clone())
+            }),
+        )
+    }
+
+    pub(crate) fn ct_and(&mut self, a: ExecutedResult, b: ExecutedResult) -> ExecutedResult {
+        let ctx = Executed::And {
+            a: Box::new(a.1.clone()),
+            b: Box::new(b.1.clone()),
+        };
+        self.with_cache(
+            ctx.clone(),
+            Rc::new(move |exec| {
+                exec.ct_ops += 1;
+
+                (exec.sk.unchecked_bitand(&a.0, &b.0), ctx.clone())
+            }),
+        )
+    }
+
+    pub(crate) fn ct_or(&mut self, a: ExecutedResult, b: ExecutedResult) -> ExecutedResult {
+        let ctx = Executed::Or {
+            a: Box::new(a.1.clone()),
+            b: Box::new(b.1.clone()),
+        };
+        self.with_cache(
+            ctx.clone(),
+            Rc::new(move |exec| {
+                exec.ct_ops += 1;
+
+                (exec.sk.unchecked_bitor(&a.0, &b.0), ctx.clone())
+            }),
+        )
+    }
+
+    pub(crate) fn ct_not(&mut self, a: ExecutedResult) -> ExecutedResult {
+        let ctx = Executed::Not {
+            a: Box::new(a.1.clone()),
+        };
+        self.with_cache(
+            ctx.clone(),
+            Rc::new(move |exec| {
+                exec.ct_ops += 1;
+
+                (
+                    exec.sk.unchecked_bitxor(&a.0, &exec.ct_constant(1).0),
+                    ctx.clone(),
+                )
+            }),
+        )
+    }
+
+    pub(crate) fn ct_false(&self) -> ExecutedResult {
         self.ct_constant(0)
     }
-    pub(crate) fn ct_true(&self) -> RadixCiphertext {
+
+    pub(crate) fn ct_true(&self) -> ExecutedResult {
         self.ct_constant(1)
     }
-    pub(crate) fn ct_constant(&self, c: u8) -> RadixCiphertext {
-        create_trivial_radix(&self.sk, c as u64, 2, 4)
+
+    pub(crate) fn ct_constant(&self, c: u8) -> ExecutedResult {
+        (
+            create_trivial_radix(&self.sk, c as u64, 2, 4),
+            Executed::Constant { c },
+        )
+    }
+
+    fn with_cache(&mut self, ctx: Executed, f: LazyExecution) -> ExecutedResult {
+        if let Some(res) = self.cache.get(&ctx) {
+            debug!("cache hit: {:?}", &ctx);
+            self.cache_hits += 1;
+            return (res.clone(), ctx);
+        }
+        info!("evaluation for: {:?}", &ctx);
+        let res = f(self);
+        self.cache.insert(ctx, res.0.clone());
+        res
+    }
+}
+
+impl std::fmt::Debug for Executed {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            Self::Constant { c } => match c {
+                0 => write!(f, "f"),
+                1 => write!(f, "t"),
+                _ => write!(f, "{}", u8_to_char(*c)),
+            },
+            Self::CtPos { at } => write!(f, "ct_{}", at),
+            Self::And { a, b } => {
+                write!(f, "(")?;
+                a.fmt(f)?;
+                write!(f, "/\\")?;
+                b.fmt(f)?;
+                write!(f, ")")
+            }
+            Self::Or { a, b } => {
+                write!(f, "(")?;
+                a.fmt(f)?;
+                write!(f, "\\/")?;
+                b.fmt(f)?;
+                write!(f, ")")
+            }
+            Self::Equal { a, b } => {
+                write!(f, "(")?;
+                a.fmt(f)?;
+                write!(f, "==")?;
+                b.fmt(f)?;
+                write!(f, ")")
+            }
+            Self::GreaterOrEqual { a, b } => {
+                write!(f, "(")?;
+                a.fmt(f)?;
+                write!(f, ">=")?;
+                b.fmt(f)?;
+                write!(f, ")")
+            }
+            Self::LessOrEqual { a, b } => {
+                write!(f, "(")?;
+                a.fmt(f)?;
+                write!(f, "<=")?;
+                b.fmt(f)?;
+                write!(f, ")")
+            }
+            Self::Not { a } => {
+                write!(f, "(!")?;
+                a.fmt(f)?;
+                write!(f, ")")
+            }
+        }
     }
 }

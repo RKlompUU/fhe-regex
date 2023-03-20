@@ -3,8 +3,8 @@ use anyhow::Result;
 use std::rc::Rc;
 use tfhe::integer::{RadixCiphertext, ServerKey};
 
-use crate::regex::execution::{lazy_exec_cached, LazyExecution, Execution};
 use crate::regex::ciphertext::StringCiphertext;
+use crate::regex::execution::{Executed, Execution, LazyExecution};
 
 #[derive(Clone)]
 pub struct RegexEngine {
@@ -31,13 +31,15 @@ impl RegexEngine {
             branches
                 .get(0)
                 .map_or(exec.ct_false(), |branch| branch(&mut exec))
+                .0
         } else {
             branches[1..]
                 .into_iter()
                 .fold(branches[0](&mut exec), |res, branch| {
                     let branch_res = branch(&mut exec);
-                    exec.ct_or(&res, &branch_res)
+                    exec.ct_or(res, branch_res)
                 })
+                .0
         };
         info!(
             "{} ciphertext operations, {} cache hits",
@@ -74,15 +76,14 @@ impl RegexEngine {
 
         match re.clone() {
             RegExpr::Char { c } => {
-                let c_char = self.content[c_pos].clone();
-                let re = re.clone();
+                let c_char = (self.content[c_pos].clone(), Executed::ct_pos(c_pos));
                 vec![(
-                    lazy_exec_cached(
-                        (re.clone(), c_pos),
-                        Rc::new(move |exec: &mut Execution| {
-                            exec.ct_eq(&c_char, &exec.ct_constant(c))
-                        }),
-                    ),
+                    Rc::new(move |exec| {
+                        exec.ct_eq(
+                            c_char.clone(),
+                            exec.ct_constant(c),
+                        )
+                    }),
                     c_pos + 1,
                 )]
             }
@@ -92,13 +93,10 @@ impl RegexEngine {
                 .into_iter()
                 .map(|(branch, c_pos)| {
                     (
-                        lazy_exec_cached(
-                            (re.clone(), c_pos),
-                            Rc::new(move |exec| {
-                                let branch_res = branch(exec);
-                                exec.ct_not(&branch_res)
-                            }),
-                        ) as LazyExecution,
+                        Rc::new(move |exec: &mut Execution| {
+                            let branch_res = branch(exec);
+                            exec.ct_not(branch_res)
+                        }) as LazyExecution,
                         c_pos,
                     )
                 })
@@ -109,36 +107,30 @@ impl RegexEngine {
                 res
             }
             RegExpr::Between { from, to } => {
-                let content_char = self.content[c_pos].clone();
+                let c_char = (self.content[c_pos].clone(), Executed::ct_pos(c_pos));
                 vec![(
-                    lazy_exec_cached(
-                        (re.clone(), c_pos),
-                        Rc::new(move |exec| {
-                            let ct_from = exec.ct_constant(from);
-                            let ct_to = exec.ct_constant(to);
-                            let ge_from = exec.ct_ge(&content_char, &ct_from);
-                            let le_to = exec.ct_le(&content_char, &ct_to);
-                            exec.ct_and(&ge_from, &le_to)
-                        }),
-                    ),
+                    Rc::new(move |exec| {
+                        let ct_from = exec.ct_constant(from);
+                        let ct_to = exec.ct_constant(to);
+                        let ge_from = exec.ct_ge(c_char.clone(), ct_from);
+                        let le_to = exec.ct_le(c_char.clone(), ct_to);
+                        exec.ct_and(ge_from, le_to)
+                    }),
                     c_pos + 1,
                 )]
             }
             RegExpr::Range { cs } => {
-                let c_char = self.content[c_pos].clone();
+                let c_char = (self.content[c_pos].clone(), Executed::ct_pos(c_pos));
                 vec![(
-                    lazy_exec_cached(
-                        (re.clone(), c_pos),
-                        Rc::new(move |exec| {
-                            cs[1..].iter().fold(
-                                exec.ct_eq(&c_char, &exec.ct_constant(cs[0])),
-                                |res, c| {
-                                    let ct_c_char_eq = exec.ct_eq(&c_char, &exec.ct_constant(*c));
-                                    exec.ct_or(&res, &ct_c_char_eq)
-                                },
-                            )
-                        }),
-                    ),
+                    Rc::new(move |exec| {
+                        cs[1..].iter().fold(
+                            exec.ct_eq(c_char.clone(), exec.ct_constant(cs[0])),
+                            |res, c| {
+                                let ct_c_char_eq = exec.ct_eq(c_char.clone(), exec.ct_constant(*c));
+                                exec.ct_or(res, ct_c_char_eq)
+                            },
+                        )
+                    }),
                     c_pos + 1,
                 )]
             }
@@ -185,9 +177,9 @@ impl RegexEngine {
                                         let branch_prior = branch_prior.clone();
                                         (
                                             Rc::new(move |exec: &mut Execution| {
-                                                let res_prior  = branch_prior(exec);
+                                                let res_prior = branch_prior(exec);
                                                 let res_post = branch_post(exec);
-                                                exec.ct_and(&res_prior, &res_post)
+                                                exec.ct_and(res_prior, res_post)
                                             })
                                                 as LazyExecution,
                                             branch_c_pos_,
@@ -213,15 +205,12 @@ impl RegexEngine {
                             self.build_exec_branches(seq_re, c_pos).into_iter().map(
                                 move |(res_, c_pos_)| {
                                     let res = res.clone();
-                                    let seq_re = seq_re.clone();
                                     (
                                         Rc::new(move |exec: &mut Execution| {
                                             let resa = res(exec);
                                             let resb = res_(exec);
-                                            info!("glueing for: {:?}, {}", seq_re, c_pos);
-                                            exec.ct_and(&resa, &resb)
-                                        })
-                                            as LazyExecution,
+                                            exec.ct_and(resa, resb)
+                                        }) as LazyExecution,
                                         c_pos_,
                                     )
                                 },

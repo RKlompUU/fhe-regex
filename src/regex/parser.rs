@@ -40,7 +40,7 @@ pub(crate) enum RegExpr {
     },
 }
 
-fn u8_to_char(c: u8) -> char {
+pub(crate) fn u8_to_char(c: u8) -> char {
     char::from_u32(c as u32).unwrap()
 }
 
