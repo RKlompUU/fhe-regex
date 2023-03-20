@@ -160,11 +160,11 @@ impl Execution {
 
     fn with_cache(&mut self, ctx: Executed, f: LazyExecution) -> ExecutedResult {
         if let Some(res) = self.cache.get(&ctx) {
-            debug!("cache hit: {:?}", &ctx);
+            trace!("cache hit: {:?}", &ctx);
             self.cache_hits += 1;
             return (res.clone(), ctx);
         }
-        info!("evaluation for: {:?}", &ctx);
+        debug!("evaluation for: {:?}", &ctx);
         let res = f(self);
         self.cache.insert(ctx, res.0.clone());
         res
