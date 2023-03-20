@@ -1,28 +1,22 @@
 use crate::regex::parser::{parse, RegExpr};
 use anyhow::Result;
 use std::rc::Rc;
-use tfhe::integer::{gen_keys_radix, RadixCiphertext, RadixClientKey, ServerKey};
-use tfhe::shortint::parameters::PARAM_MESSAGE_2_CARRY_2;
+use tfhe::integer::{RadixCiphertext, ServerKey};
 
 use crate::regex::execution::{DelayedExecution, Execution};
-use crate::trials::str2::{
-    create_trivial_radix, encrypt_str, trivial_encrypt_str, StringCiphertext,
-};
+use crate::trials::str2::StringCiphertext;
 
 #[derive(Clone)]
 pub struct RegexEngine {
     content: StringCiphertext,
-    sk: ServerKey, // using Rc here, it needs to be cloned often, and cloning the ServerKey itself is too expensive
-
-    ct_ops: usize,
+    sk: ServerKey,
 }
 
 impl RegexEngine {
     pub fn new(content: StringCiphertext, sk: ServerKey) -> Self {
         Self {
             content,
-            sk: sk,
-            ct_ops: 0,
+            sk,
         }
     }
 
@@ -41,12 +35,14 @@ impl RegexEngine {
                 .get(0)
                 .map_or(exec.ct_false(), |branch_res| branch_res.exec(&mut exec)));
         }
-        Ok(branches[1..]
+        let res = branches[1..]
             .into_iter()
             .fold(branches[0].exec(&mut exec), |res, branch| {
                 let branch_res = branch.exec(&mut exec);
                 exec.ct_or(&res, &branch_res)
-            }))
+            });
+        info!("computation required {} ciphertext operations", exec.ct_operations_count());
+        Ok(res)
     }
 
     // this is a list monad procedure
@@ -84,17 +80,19 @@ impl RegexEngine {
                 })),
                 c_pos + 1,
             )],
-            RegExpr::AnyChar => vec![(DelayedExecution::new(Rc::new(|exec| exec.ct_true())), c_pos + 1)],
+            RegExpr::AnyChar => vec![(
+                DelayedExecution::new(Rc::new(|exec| exec.ct_true())),
+                c_pos + 1,
+            )],
             RegExpr::Not { re } => self
                 .process(&re, c_pos)
                 .into_iter()
                 .map(|(branch, c_pos)| {
-                    let sk = self.sk.clone();
                     (
                         DelayedExecution::new(Rc::new(move |exec| {
                             let branch_res = branch.exec(exec);
                             exec.ct_not(&branch_res)
-                            })),
+                        })),
                         c_pos,
                     )
                 })
@@ -110,8 +108,7 @@ impl RegexEngine {
                     DelayedExecution::new(Rc::new(move |exec| {
                         let ct_from = exec.ct_constant(from);
                         let ct_to = exec.ct_constant(to);
-                        let ge_from =
-                            exec.ct_ge(&content_char, &ct_from);
+                        let ge_from = exec.ct_ge(&content_char, &ct_from);
                         let le_to = exec.ct_le(&content_char, &ct_to);
                         exec.ct_and(&ge_from, &le_to)
                     })),
@@ -119,16 +116,14 @@ impl RegexEngine {
                 )]
             }
             RegExpr::Range { cs } => {
-                let content_char = self.content[c_pos].clone();
+                let c_char = self.content[c_pos].clone();
                 vec![(
                     DelayedExecution::new(Rc::new(move |exec| {
                         cs[1..].iter().fold(
-                            exec.ct_eq(&content_char, &exec.ct_constant(cs[0])),
+                            exec.ct_eq(&c_char, &exec.ct_constant(cs[0])),
                             |res, c| {
-                                exec.ct_or(
-                                    &res,
-                                    &exec.ct_eq(&content_char, &exec.ct_constant(*c)),
-                                )
+                                let ct_c_char_eq = exec.ct_eq(&c_char, &exec.ct_constant(*c));
+                                exec.ct_or(&res, &ct_c_char_eq)
                             },
                         )
                     })),
