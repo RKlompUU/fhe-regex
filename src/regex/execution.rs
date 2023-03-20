@@ -12,6 +12,13 @@ pub(crate) struct Execution {
     ct_ops: usize,
     cache_hits: usize,
 }
+pub(crate)type LazyExecution = Rc<dyn Fn(&mut Execution) -> RadixCiphertext>;
+
+pub(crate) fn lazy_exec_cached(ctx: (RegExpr, usize), func: LazyExecution) -> LazyExecution  {
+    Rc::new(move |exec| {
+        exec.with_cache(ctx.clone(), func.clone())
+    })
+}
 
 impl Execution {
     pub(crate) fn new(sk: ServerKey) -> Self {
@@ -31,11 +38,12 @@ impl Execution {
         self.cache_hits
     }
 
-    pub(crate) fn with_cache(&mut self, ctx: (RegExpr, usize), f: impl Fn(&mut Self) -> RadixCiphertext) -> RadixCiphertext {
+    pub(crate) fn with_cache(&mut self, ctx: (RegExpr, usize), f: LazyExecution) -> RadixCiphertext {
         if let Some(res) = self.cache.get(&ctx) {
             self.cache_hits += 1;
             return res.clone();
         }
+        info!("evaluation at {:?}: {:?}", &ctx.1, &ctx.0);
         let res = f(self);
         self.cache.insert(ctx, res.clone());
         res
@@ -74,20 +82,5 @@ impl Execution {
     }
     pub(crate) fn ct_constant(&self, c: u8) -> RadixCiphertext {
         create_trivial_radix(&self.sk, c as u64, 2, 4)
-    }
-}
-
-#[derive(Clone)]
-pub(crate) struct DelayedExecution {
-    func: Rc<dyn Fn(&mut Execution) -> RadixCiphertext>,
-}
-
-impl DelayedExecution {
-    pub(crate) fn new(func: Rc<dyn Fn(&mut Execution) -> RadixCiphertext>) -> Self {
-        Self { func }
-    }
-
-    pub(crate) fn exec(&self, exec: &mut Execution) -> RadixCiphertext {
-        (self.func)(exec)
     }
 }

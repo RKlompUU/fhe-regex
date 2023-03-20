@@ -14,7 +14,7 @@ pub(crate) enum RegExpr {
     },
     AnyChar,
     Not {
-        re: Box<RegExpr>,
+        not_re: Box<RegExpr>,
     },
     Between {
         from: u8,
@@ -31,7 +31,7 @@ pub(crate) enum RegExpr {
         opt_re: Box<RegExpr>,
     },
     Repeated {
-        re: Box<RegExpr>,
+        repeat_re: Box<RegExpr>,
         at_least: Option<usize>, // if None: no least limit, aka 0 times
         at_most: Option<usize>,  // if None: no most limit
     },
@@ -51,9 +51,9 @@ impl fmt::Debug for RegExpr {
             Self::EOF => write!(f, "$"),
             Self::Char { c } => write!(f, "{}", u8_to_char(*c)),
             Self::AnyChar => write!(f, "."),
-            Self::Not { re } => {
+            Self::Not { not_re } => {
                 write!(f, "[^")?;
-                re.fmt(f)?;
+                not_re.fmt(f)?;
                 write!(f, "]")
             }
             Self::Between { from, to } => {
@@ -72,14 +72,14 @@ impl fmt::Debug for RegExpr {
                 write!(f, ")")
             }
             Self::Repeated {
-                re,
+                repeat_re,
                 at_least,
                 at_most,
             } => {
                 let stringify_opt_n = |opt_n: &Option<usize>| -> String {
                     opt_n.map_or("*".to_string(), |n| format!("{:?}", n))
                 };
-                re.fmt(f)?;
+                repeat_re.fmt(f)?;
                 write!(
                     f,
                     "{{{},{}}}",
@@ -204,9 +204,9 @@ where
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
 {
     choice((
-        byte(b'^')
-            .with(range())
-            .map(|re| RegExpr::Not { re: Box::new(re) }),
+        byte(b'^').with(range()).map(|re| RegExpr::Not {
+            not_re: Box::new(re),
+        }),
         attempt(
             (byte::letter(), byte(b'-'), byte::letter())
                 .map(|(from, _, to)| RegExpr::Between { from, to }),
@@ -222,7 +222,7 @@ where
 {
     choice((
         attempt((atom(), choice((byte(b'*'), byte(b'+'))))).map(|(re, c)| RegExpr::Repeated {
-            re: Box::new(re),
+            repeat_re: Box::new(re),
             at_least: if c == b'*' { None } else { Some(1) },
             at_most: None,
         }),
@@ -233,7 +233,7 @@ where
         .map(|(re, repeat_digits)| {
             let repeat = parse_digits(&repeat_digits);
             RegExpr::Repeated {
-                re: Box::new(re),
+                repeat_re: Box::new(re),
                 at_least: Some(repeat),
                 at_most: Some(repeat),
             }
@@ -252,7 +252,7 @@ where
         )
             .map(
                 |(re, (at_least_digits, _, at_most_digits))| RegExpr::Repeated {
-                    re: Box::new(re),
+                    repeat_re: Box::new(re),
                     at_least: if at_least_digits.len() == 0 {
                         None
                     } else {
