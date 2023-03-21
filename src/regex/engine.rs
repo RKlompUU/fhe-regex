@@ -148,7 +148,7 @@ fn build_exec_branches(
                 build_exec_branches(
                     content,
                     &(RegExpr::Seq {
-                        seq: std::iter::repeat(*repeat_re.clone())
+                        re_xs: std::iter::repeat(*repeat_re.clone())
                             .take(std::cmp::max(1, at_least))
                             .collect(),
                     }),
@@ -161,18 +161,18 @@ fn build_exec_branches(
                     res.last()
                         .unwrap()
                         .iter()
-                        .flat_map(|(branch_prior, branch_c_pos)| {
+                        .flat_map(|(branch_prev, branch_c_pos)| {
                             build_exec_branches(content, &repeat_re, *branch_c_pos)
                                 .into_iter()
-                                .map(move |(branch_post, branch_c_pos_)| {
-                                    let branch_prior = branch_prior.clone();
+                                .map(move |(branch_x, branch_x_c_pos)| {
+                                    let branch_prev = branch_prev.clone();
                                     (
                                         Rc::new(move |exec: &mut Execution| {
-                                            let res_prior = branch_prior(exec);
-                                            let res_post = branch_post(exec);
-                                            exec.ct_and(res_prior, res_post)
+                                            let res_prev = branch_prev(exec);
+                                            let res_x = branch_x(exec);
+                                            exec.ct_and(res_prev, res_x)
                                         }) as LazyExecution,
-                                        branch_c_pos_,
+                                        branch_x_c_pos,
                                     )
                                 })
                         })
@@ -186,22 +186,22 @@ fn build_exec_branches(
             res.push((Rc::new(|exec| exec.ct_true()), c_pos));
             res
         }
-        RegExpr::Seq { seq } => seq[1..].iter().fold(
-            build_exec_branches(content, &seq[0], c_pos),
-            |continuations, seq_re| {
+        RegExpr::Seq { re_xs } => re_xs[1..].iter().fold(
+            build_exec_branches(content, &re_xs[0], c_pos),
+            |continuations, re_x| {
                 continuations
                     .into_iter()
-                    .flat_map(|(res, c_pos)| {
-                        build_exec_branches(content, seq_re, c_pos).into_iter().map(
-                            move |(res_, c_pos_)| {
-                                let res = res.clone();
+                    .flat_map(|(branch_prev, branch_prev_c_pos)| {
+                        build_exec_branches(content, re_x, branch_prev_c_pos).into_iter().map(
+                            move |(branch_x, branch_x_c_pos)| {
+                                let branch_prev = branch_prev.clone();
                                 (
                                     Rc::new(move |exec: &mut Execution| {
-                                        let resa = res(exec);
-                                        let resb = res_(exec);
-                                        exec.ct_and(resa, resb)
+                                        let res_prev = branch_prev(exec);
+                                        let res_x = branch_x(exec);
+                                        exec.ct_and(res_prev, res_x)
                                     }) as LazyExecution,
-                                    c_pos_,
+                                    branch_x_c_pos,
                                 )
                             },
                         )

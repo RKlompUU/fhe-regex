@@ -22,7 +22,17 @@ impl Executed {
     pub(crate) fn ct_pos(at: usize) -> Self {
         Executed::CtPos { at }
     }
+
+    fn get_trivial_constant(&self) -> Option<u8> {
+        match self {
+            Self::Constant { c } => Some(*c),
+            _ => None,
+        }
+    }
 }
+
+const CT_FALSE: u8 = 0;
+const CT_TRUE: u8 = 1;
 
 pub(crate) struct Execution {
     sk: ServerKey,
@@ -101,6 +111,22 @@ impl Execution {
             a: Box::new(a.1.clone()),
             b: Box::new(b.1.clone()),
         };
+
+        let c_a = a.1.get_trivial_constant();
+        let c_b = b.1.get_trivial_constant();
+        if c_a == Some(CT_TRUE) {
+            return (b.0, ctx);
+        }
+        if c_a == Some(CT_FALSE) {
+            return (a.0, ctx);
+        }
+        if c_b == Some(CT_TRUE) {
+            return (a.0, ctx);
+        }
+        if c_b == Some(CT_FALSE) {
+            return (b.0, ctx);
+        }
+
         self.with_cache(
             ctx.clone(),
             Rc::new(move |exec| {
@@ -116,6 +142,19 @@ impl Execution {
             a: Box::new(a.1.clone()),
             b: Box::new(b.1.clone()),
         };
+
+        let c_a = a.1.get_trivial_constant();
+        let c_b = b.1.get_trivial_constant();
+        if c_a == Some(CT_TRUE) {
+            return (a.0, ctx);
+        }
+        if c_b == Some(CT_TRUE) {
+            return (b.0, ctx);
+        }
+        if c_a == Some(CT_FALSE) && c_b == Some(CT_FALSE) {
+            return (a.0, ctx);
+        }
+
         self.with_cache(
             ctx.clone(),
             Rc::new(move |exec| {
@@ -144,11 +183,11 @@ impl Execution {
     }
 
     pub(crate) fn ct_false(&self) -> ExecutedResult {
-        self.ct_constant(0)
+        self.ct_constant(CT_FALSE)
     }
 
     pub(crate) fn ct_true(&self) -> ExecutedResult {
-        self.ct_constant(1)
+        self.ct_constant(CT_TRUE)
     }
 
     pub(crate) fn ct_constant(&self, c: u8) -> ExecutedResult {

@@ -36,7 +36,7 @@ pub(crate) enum RegExpr {
         at_most: Option<usize>,  // if None: no most limit
     },
     Seq {
-        seq: Vec<RegExpr>,
+        re_xs: Vec<RegExpr>,
     },
 }
 
@@ -91,10 +91,10 @@ impl fmt::Debug for RegExpr {
                 opt_re.fmt(f)?;
                 write!(f, "?")
             }
-            Self::Seq { seq } => {
+            Self::Seq { re_xs } => {
                 write!(f, "<")?;
-                for re in seq {
-                    re.fmt(f)?;
+                for re_x in re_xs {
+                    re_x.fmt(f)?;
                 }
                 write!(f, ">")?;
                 Ok(())
@@ -157,7 +157,7 @@ where
     Input: Stream<Token = u8>,
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
 {
-    many(factor()).map(|seq| RegExpr::Seq { seq })
+    many(factor()).map(|re_xs| RegExpr::Seq { re_xs })
 }
 
 fn factor<Input>() -> impl Parser<Input, Output = RegExpr>
@@ -285,14 +285,14 @@ fn test_parser() {
             name: "test escaping, simple".to_string(),
             pattern: "\\^".to_string(),
             exp: RegExpr::Seq {
-                seq: vec![RegExpr::Char { c: b'^' }],
+                re_xs: vec![RegExpr::Char { c: b'^' }],
             },
         },
         TestCase {
             name: "test escaping".to_string(),
             pattern: "^ca\\^b$".to_string(),
             exp: RegExpr::Seq {
-                seq: vec![
+                re_xs: vec![
                     RegExpr::SOF,
                     RegExpr::Char { c: b'c' },
                     RegExpr::Char { c: b'a' },
