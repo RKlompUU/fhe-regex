@@ -3,7 +3,7 @@ use std::rc::Rc;
 use tfhe::integer::{RadixCiphertext, ServerKey};
 
 use crate::regex::parser::u8_to_char;
-use crate::trials::str2::create_trivial_radix;
+use crate::regex::ciphertext::create_trivial_radix;
 
 #[derive(Clone, PartialEq, Eq, Hash)]
 pub(crate) enum Executed {

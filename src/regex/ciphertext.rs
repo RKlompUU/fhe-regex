@@ -1,4 +1,5 @@
 use tfhe::integer::{RadixCiphertext, RadixClientKey, ServerKey};
+use anyhow::{Result, anyhow};
 
 pub type StringCiphertext = Vec<RadixCiphertext>;
 
@@ -25,9 +26,12 @@ pub fn create_trivial_radix(
     RadixCiphertext::from(vec_res)
 }
 
-pub fn encrypt_str(client_key: &RadixClientKey, s: &str) -> StringCiphertext {
-    s.as_bytes()
+pub fn encrypt_str(client_key: &RadixClientKey, s: &str) -> Result<StringCiphertext> {
+    if !s.is_ascii() {
+        return Err(anyhow!("content contains non-ascii characters"));
+    }
+    Ok(s.as_bytes()
         .iter()
         .map(|byte| client_key.encrypt(*byte as u64))
-        .collect()
+        .collect())
 }

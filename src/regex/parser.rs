@@ -104,7 +104,26 @@ impl fmt::Debug for RegExpr {
 }
 
 pub(crate) fn parse(pattern: &str) -> Result<RegExpr> {
-    let (parsed, unparsed) = between(byte(b'/'), byte(b'/'), regex()).parse(pattern.as_bytes())?;
+    let (parsed, unparsed) = between(
+        byte(b'/'),
+        byte(b'/'),
+        (optional(byte(b'^')), regex(), optional(byte(b'$'))),
+    )
+    .map(|(sof, re, eof)| {
+        if sof.is_none() && eof.is_none() {
+            return re;
+        }
+        let mut re_xs = vec![];
+        if sof.is_some() {
+            re_xs.push(RegExpr::SOF);
+        }
+        re_xs.push(re);
+        if eof.is_some() {
+            re_xs.push(RegExpr::EOF);
+        }
+        RegExpr::Seq { re_xs }
+    })
+    .parse(pattern.as_bytes())?;
     if !unparsed.is_empty() {
         return Err(anyhow!(
             "failed to parse regular expression, unexpected token at start of: {}",
@@ -157,7 +176,7 @@ where
     Input: Stream<Token = u8>,
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
 {
-    many(factor()).map(|re_xs| RegExpr::Seq { re_xs })
+    many(factor()).map(|re_xs: Vec<RegExpr>| if re_xs.len() == 1 { re_xs[0].clone() } else { RegExpr::Seq { re_xs } })
 }
 
 fn factor<Input>() -> impl Parser<Input, Output = RegExpr>
@@ -180,8 +199,6 @@ where
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
 {
     choice((
-        byte(b'^').map(|_| RegExpr::SOF),
-        byte(b'$').map(|_| RegExpr::EOF),
         byte(b'.').map(|_| RegExpr::AnyChar),
         attempt(byte(b'\\').with(parser::token::any())).map(|c| RegExpr::Char { c }),
         byte::letter().map(|c| RegExpr::Char { c }),
@@ -280,27 +297,79 @@ fn test_parser() {
         exp: RegExpr,
     }
 
+    let seq = |re_xs| RegExpr::Seq { re_xs };
+
     let tcs: Vec<TestCase> = vec![
         TestCase {
-            name: "test escaping, simple".to_string(),
-            pattern: "\\^".to_string(),
-            exp: RegExpr::Seq {
-                re_xs: vec![RegExpr::Char { c: b'^' }],
-            },
+            name: "SOF encapsulates full RHS".to_string(),
+            pattern: "/^ab|cd/".to_string(),
+            exp: seq(vec![
+                RegExpr::SOF,
+                RegExpr::Either {
+                    l_re: Box::new(seq(vec![
+                        RegExpr::Char { c: b'a' },
+                        RegExpr::Char { c: b'b' },
+                    ])),
+                    r_re: Box::new(seq(vec![
+                        RegExpr::Char { c: b'c' },
+                        RegExpr::Char { c: b'd' },
+                    ])),
+                },
+            ]),
         },
         TestCase {
-            name: "test escaping".to_string(),
-            pattern: "^ca\\^b$".to_string(),
-            exp: RegExpr::Seq {
-                re_xs: vec![
-                    RegExpr::SOF,
+            name: "EOF encapsulates full RHS".to_string(),
+            pattern: "/ab|cd$/".to_string(),
+            exp: seq(vec![
+                RegExpr::Either {
+                    l_re: Box::new(seq(vec![
+                        RegExpr::Char { c: b'a' },
+                        RegExpr::Char { c: b'b' },
+                    ])),
+                    r_re: Box::new(seq(vec![
+                        RegExpr::Char { c: b'c' },
+                        RegExpr::Char { c: b'd' },
+                    ])),
+                },
+                RegExpr::EOF,
+            ]),
+        },
+        TestCase {
+            name: "SOF + EOF both encapsulate full center".to_string(),
+            pattern: "/^ab|cd$/".to_string(),
+            exp: seq(vec![
+                RegExpr::SOF,
+                RegExpr::Either {
+                    l_re: Box::new(seq(vec![
+                        RegExpr::Char { c: b'a' },
+                        RegExpr::Char { c: b'b' },
+                    ])),
+                    r_re: Box::new(seq(vec![
+                        RegExpr::Char { c: b'c' },
+                        RegExpr::Char { c: b'd' },
+                    ])),
+                },
+                RegExpr::EOF,
+            ]),
+        },
+        TestCase {
+            name: "escaping, simple".to_string(),
+            pattern: "/\\^/".to_string(),
+            exp: RegExpr::Char { c: b'^' },
+        },
+        TestCase {
+            name: "escaping, more realistic".to_string(),
+            pattern: "/^ca\\^b$/".to_string(),
+            exp: seq(vec![
+                RegExpr::SOF,
+                seq(vec![
                     RegExpr::Char { c: b'c' },
                     RegExpr::Char { c: b'a' },
                     RegExpr::Char { c: b'^' },
                     RegExpr::Char { c: b'b' },
-                    RegExpr::EOF,
-                ],
-            },
+                ]),
+                RegExpr::EOF,
+            ]),
         },
     ];
 
