@@ -270,6 +270,10 @@ mod tests {
     #[test_case("cdaabc", "/a*bc/", 1)]
     #[test_case("cdbc", "/a+bc/", 0)]
     #[test_case("bc", "/a+bc/", 0)]
+    #[test_case("Ab", "/ab/i", 1)]
+    #[test_case("Ab", "/ab/", 0)]
+    #[test_case("cD", "/ab|cd/i", 1)]
+    #[test_case("cD", "/cD/", 1)]
     fn test_has_match(content: &str, pattern: &str, exp: u64) {
         let ct_content: StringCiphertext = content
             .as_bytes()
