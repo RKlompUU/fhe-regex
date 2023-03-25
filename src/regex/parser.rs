@@ -199,7 +199,9 @@ where
     ))
 }
 
-const NON_ESCAPABLE_SYMBOLS: [u8; 14] = [b'&', b';', b':', b',', b'`', b'~', b'-', b'_', b'!', b'@', b'#', b'%', b'\'', b'\"'];
+const NON_ESCAPABLE_SYMBOLS: [u8; 14] = [
+    b'&', b';', b':', b',', b'`', b'~', b'-', b'_', b'!', b'@', b'#', b'%', b'\'', b'\"',
+];
 
 fn atom<Input>() -> impl Parser<Input, Output = RegExpr>
 where

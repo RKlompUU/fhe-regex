@@ -192,8 +192,9 @@ fn build_branches(
                 continuations
                     .into_iter()
                     .flat_map(|(branch_prev, branch_prev_c_pos)| {
-                        build_branches(content, re_x, branch_prev_c_pos).into_iter().map(
-                            move |(branch_x, branch_x_c_pos)| {
+                        build_branches(content, re_x, branch_prev_c_pos)
+                            .into_iter()
+                            .map(move |(branch_x, branch_x_c_pos)| {
                                 let branch_prev = branch_prev.clone();
                                 (
                                     Rc::new(move |exec: &mut Execution| {
@@ -203,12 +204,49 @@ fn build_branches(
                                     }) as LazyExecution,
                                     branch_x_c_pos,
                                 )
-                            },
-                        )
+                            })
                     })
                     .collect()
             },
         ),
         _ => panic!("unmatched regex variant"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::regex::engine::has_match;
+    use test_case::test_case;
+
+    use crate::regex::ciphertext::{encrypt_str, gen_keys};
+    use lazy_static::lazy_static;
+
+    lazy_static! {
+        pub static ref KEYS: (tfhe::integer::RadixClientKey, tfhe::integer::ServerKey) = gen_keys();
+    }
+
+    #[test_case("ab", "/ab/", 1)]
+    #[test_case("ab", "/a?b/", 1)]
+    #[test_case("ab", "/^ab|cd$/", 1)]
+    #[test_case(" ab", "/^ab|cd$/", 0)]
+    #[test_case(" cd", "/^ab|cd$/", 0)]
+    #[test_case("cd", "/^ab|cd$/", 1)]
+    #[test_case("abcd", "/^ab|cd$/", 0)]
+    #[test_case("abcd", "/ab|cd$/", 1)]
+    #[test_case("abc", "/abc/", 1)]
+    #[test_case("123abc", "/abc/", 1)]
+    #[test_case("123abc456", "/abc/", 1)]
+    #[test_case("123abdc456", "/abc/", 0)]
+    #[test_case("abc456", "/abc/", 1)]
+    #[test_case("bc", "/a*bc/", 1)]
+    #[test_case("cdaabc", "/a*bc/", 1)]
+    #[test_case("cdbc", "/a+bc/", 0)]
+    #[test_case("bc", "/a+bc/", 0)]
+    fn test_has_match(content: &str, pattern: &str, exp: u64) {
+        let ct_content = encrypt_str(&KEYS.0, content).unwrap();
+        let ct_res = has_match(&KEYS.1, &ct_content, pattern).unwrap();
+
+        let got = KEYS.0.decrypt(&ct_res);
+        assert_eq!(exp, got);
     }
 }

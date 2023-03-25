@@ -13,3 +13,4 @@ log = "*"
 
 [dev-dependencies]
 test-case = "*"
+lazy_static = "*"
