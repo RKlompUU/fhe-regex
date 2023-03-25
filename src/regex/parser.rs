@@ -199,6 +199,8 @@ where
     ))
 }
 
+const NON_ESCAPABLE_SYMBOLS: [u8; 14] = [b'&', b';', b':', b',', b'`', b'~', b'-', b'_', b'!', b'@', b'#', b'%', b'\'', b'\"'];
+
 fn atom<Input>() -> impl Parser<Input, Output = RegExpr>
 where
     Input: Stream<Token = u8>,
@@ -207,7 +209,8 @@ where
     choice((
         byte(b'.').map(|_| RegExpr::AnyChar),
         attempt(byte(b'\\').with(parser::token::any())).map(|c| RegExpr::Char { c }),
-        byte::letter().map(|c| RegExpr::Char { c }),
+        choice((byte::letter(), parser::token::one_of(NON_ESCAPABLE_SYMBOLS)))
+            .map(|c| RegExpr::Char { c }),
         between(byte(b'['), byte(b']'), range()),
         between(byte(b'('), byte(b')'), regex()),
     ))
@@ -300,6 +303,249 @@ mod tests {
     use crate::regex::parser::{parse, RegExpr};
     use test_case::test_case;
 
+    #[test_case("/h/", RegExpr::Char { c: b'h' }; "char")]
+    #[test_case("/&/", RegExpr::Char { c: b'&' }; "not necessary to escape ampersand")]
+    #[test_case("/;/", RegExpr::Char { c: b';' }; "not necessary to escape semicolon")]
+    #[test_case("/:/", RegExpr::Char { c: b':' }; "not necessary to escape colon")]
+    #[test_case("/,/", RegExpr::Char { c: b',' }; "not necessary to escape comma")]
+    #[test_case("/`/", RegExpr::Char { c: b'`' }; "not necessary to escape backtick")]
+    #[test_case("/~/", RegExpr::Char { c: b'~' }; "not necessary to escape tilde")]
+    #[test_case("/-/", RegExpr::Char { c: b'-' }; "not necessary to escape minus")]
+    #[test_case("/_/", RegExpr::Char { c: b'_' }; "not necessary to escape underscore")]
+    #[test_case("/%/", RegExpr::Char { c: b'%' }; "not necessary to escape percentage")]
+    #[test_case("/#/", RegExpr::Char { c: b'#' }; "not necessary to escape hashtag")]
+    #[test_case("/@/", RegExpr::Char { c: b'@' }; "not necessary to escape at")]
+    #[test_case("/!/", RegExpr::Char { c: b'!' }; "not necessary to escape exclamation")]
+    #[test_case("/'/", RegExpr::Char { c: b'\'' }; "not necessary to escape single quote")]
+    #[test_case("/\"/", RegExpr::Char { c: b'\"' }; "not necessary to escape double quote")]
+    #[test_case("/\\h/", RegExpr::Char { c: b'h' }; "anything can be escaped")]
+    #[test_case("/./", RegExpr::AnyChar; "any")]
+    #[test_case("/abc/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::Char { c: b'a' },
+            RegExpr::Char { c: b'b' },
+            RegExpr::Char { c: b'c' },
+        ]};
+        "abc")]
+    #[test_case("/^abc/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Seq {re_xs: vec![
+                RegExpr::Char { c: b'a' },
+                RegExpr::Char { c: b'b' },
+                RegExpr::Char { c: b'c' },
+            ]},
+        ]};
+        "<sof>abc")]
+    #[test_case("/abc$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::Seq {re_xs: vec![
+                RegExpr::Char { c: b'a' },
+                RegExpr::Char { c: b'b' },
+                RegExpr::Char { c: b'c' },
+            ]},
+            RegExpr::EOF,
+        ]};
+        "abc<eof>")]
+    #[test_case("/^abc$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Seq {re_xs: vec![
+                RegExpr::Char { c: b'a' },
+                RegExpr::Char { c: b'b' },
+                RegExpr::Char { c: b'c' },
+            ]},
+            RegExpr::EOF,
+        ]};
+        "<sof>abc<eof>")]
+    #[test_case("/^ab?c$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Seq {re_xs: vec![
+                RegExpr::Char { c: b'a' },
+                RegExpr::Optional { opt_re: Box::new(RegExpr::Char { c: b'b' }) },
+                RegExpr::Char { c: b'c' },
+            ]},
+            RegExpr::EOF,
+        ]};
+        "<sof>ab<question>c<eof>")]
+    #[test_case("/^ab*c$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Seq {re_xs: vec![
+                RegExpr::Char { c: b'a' },
+                RegExpr::Repeated {
+                    repeat_re: Box::new(RegExpr::Char { c: b'b' }),
+                    at_least: None,
+                    at_most: None,
+                },
+                RegExpr::Char { c: b'c' },
+            ]},
+            RegExpr::EOF,
+        ]};
+        "<sof>ab<star>c<eof>")]
+    #[test_case("/^ab+c$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Seq {re_xs: vec![
+                RegExpr::Char { c: b'a' },
+                RegExpr::Repeated {
+                    repeat_re: Box::new(RegExpr::Char { c: b'b' }),
+                    at_least: Some(1),
+                    at_most: None,
+                },
+                RegExpr::Char { c: b'c' },
+            ]},
+            RegExpr::EOF,
+        ]};
+        "<sof>ab<plus>c<eof>")]
+    #[test_case("/^ab{2}c$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Seq {re_xs: vec![
+                RegExpr::Char { c: b'a' },
+                RegExpr::Repeated {
+                    repeat_re: Box::new(RegExpr::Char { c: b'b' }),
+                    at_least: Some(2),
+                    at_most: Some(2),
+                },
+                RegExpr::Char { c: b'c' },
+            ]},
+            RegExpr::EOF,
+        ]};
+        "<sof>ab<twice>c<eof>")]
+    #[test_case("/^ab{3,}c$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Seq {re_xs: vec![
+                RegExpr::Char { c: b'a' },
+                RegExpr::Repeated {
+                    repeat_re: Box::new(RegExpr::Char { c: b'b' }),
+                    at_least: Some(3),
+                    at_most: None,
+                },
+                RegExpr::Char { c: b'c' },
+            ]},
+            RegExpr::EOF,
+        ]};
+        "<sof>ab<atleast 3>c<eof>")]
+    #[test_case("/^ab{2,4}c$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Seq {re_xs: vec![
+                RegExpr::Char { c: b'a' },
+                RegExpr::Repeated {
+                    repeat_re: Box::new(RegExpr::Char { c: b'b' }),
+                    at_least: Some(2),
+                    at_most: Some(4),
+                },
+                RegExpr::Char { c: b'c' },
+            ]},
+            RegExpr::EOF,
+        ]};
+        "<sof>ab<between 2 and 4>c<eof>")]
+    #[test_case("/^.$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::AnyChar,
+            RegExpr::EOF,
+        ]};
+        "<sof><any><eof>")]
+    #[test_case("/^[abc]$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Range { cs: vec![b'a', b'b', b'c'] },
+            RegExpr::EOF,
+        ]};
+        "<sof><a or b or c><eof>")]
+    #[test_case("/^[a-d]$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Between { from: b'a', to: b'd' },
+            RegExpr::EOF,
+        ]};
+        "<sof><between a and d><eof>")]
+    #[test_case("/^[^abc]$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Not { not_re: Box::new(RegExpr::Range { cs: vec![b'a', b'b', b'c'] })},
+            RegExpr::EOF,
+        ]};
+        "<sof><not <a or b or c>><eof>")]
+    #[test_case("/^[^a-d]$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Not { not_re: Box::new(RegExpr::Between { from: b'a', to: b'd' }) },
+            RegExpr::EOF,
+        ]};
+        "<sof><not <between a and d>><eof>")]
+    #[test_case("/^/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Seq { re_xs: vec![] }
+        ]};
+        "sof")]
+    #[test_case("/$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::Seq { re_xs: vec![] },
+            RegExpr::EOF
+        ]};
+        "eof")]
+    #[test_case("/a*/",
+        RegExpr::Repeated {
+            repeat_re: Box::new(RegExpr::Char { c: b'a' }),
+            at_least: None,
+            at_most: None,
+        };
+        "repeat unbounded (w/ *)")]
+    #[test_case("/a+/",
+        RegExpr::Repeated {
+            repeat_re: Box::new(RegExpr::Char { c: b'a' }),
+            at_least: Some(1),
+            at_most: None,
+        };
+        "repeat bounded at least (w/ +)")]
+    #[test_case("/a{104,}/",
+        RegExpr::Repeated {
+            repeat_re: Box::new(RegExpr::Char { c: b'a' }),
+            at_least: Some(104),
+            at_most: None,
+        };
+        "repeat bounded at least (w/ {x,}")]
+    #[test_case("/a{,15}/",
+        RegExpr::Repeated {
+            repeat_re: Box::new(RegExpr::Char { c: b'a' }),
+            at_least: None,
+            at_most: Some(15),
+        };
+        "repeat bounded at most (w/ {,x}")]
+    #[test_case("/a{12,15}/",
+        RegExpr::Repeated {
+            repeat_re: Box::new(RegExpr::Char { c: b'a' }),
+            at_least: Some(12),
+            at_most: Some(15),
+        };
+        "repeat bounded at least and at most (w/ {x,y}")]
+    #[test_case("/(a|b)*/",
+        RegExpr::Repeated {
+            repeat_re: Box::new(RegExpr::Either {
+                l_re: Box::new(RegExpr::Char { c: b'a' }),
+                r_re: Box::new(RegExpr::Char { c: b'b' }),
+            }),
+            at_least: None,
+            at_most: None,
+        };
+        "repeat complex unbounded")]
+    #[test_case("/(a|b){3,7}/",
+        RegExpr::Repeated {
+            repeat_re: Box::new(RegExpr::Either {
+                l_re: Box::new(RegExpr::Char { c: b'a' }),
+                r_re: Box::new(RegExpr::Char { c: b'b' }),
+            }),
+            at_least: Some(3),
+            at_most: Some(7),
+        };
+        "repeat complex bounded")]
     #[test_case("/^ab|cd/",
         RegExpr::Seq { re_xs: vec![
             RegExpr::SOF,
@@ -348,7 +594,13 @@ mod tests {
         "SOF + EOF both encapsulate full center")]
     #[test_case("/\\^/",
         RegExpr::Char { c: b'^' };
-        "escaping, simple")]
+        "escaping sof symbol")]
+    #[test_case("/\\./",
+        RegExpr::Char { c: b'.' };
+        "escaping period symbol")]
+    #[test_case("/\\*/",
+        RegExpr::Char { c: b'*' };
+        "escaping star symbol")]
     #[test_case("/^ca\\^b$/",
         RegExpr::Seq {re_xs: vec![
             RegExpr::SOF,
