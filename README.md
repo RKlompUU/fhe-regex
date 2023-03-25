@@ -2,7 +2,7 @@
 
 This is a regex engine for determining whether a regex pattern matches on
 _encrypted_ content. The content is never decrypted, the engine builds on
-[https://github.com/zama-ai/tfhe-rs](tfhe-rs) to apply fully homomorphic
+[tfhe-rs](https://github.com/zama-ai/tfhe-rs) to apply fully homomorphic
 encryption circuits. This enables to never have to decrypt the content, instead
 producing results in the same encrypted space (ie whoever has the private key
 with which the content was encrypted can decrypt the regex result).
