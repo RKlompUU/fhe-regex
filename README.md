@@ -63,8 +63,9 @@ Internally the regex engine works on a vector of encrypted content characters
 (ie each content's character is encrypted individually). As a consequence this
 does mean that at least some information about the content is leaked to the
 party that is applying the regex pattern: the length of the content. Though
-this could probably be mitigated by introducing some sort of padding character
-(fake character that does not break pattern matches).
+this could probably be mitigated at cost of a significant performance penalty
+by introducing some sort of padding character (fake character that does not 
+break pattern matches).
 
 It parses the pattern, then generates lazily (in the sense of not yet executing
 any homomorphic operations) the list of potential homomorphic circuits that
