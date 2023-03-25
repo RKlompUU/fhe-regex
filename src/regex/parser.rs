@@ -13,15 +13,15 @@ pub(crate) enum RegExpr {
         c: u8,
     },
     AnyChar,
-    Not {
-        not_re: Box<RegExpr>,
-    },
     Between {
         from: u8,
         to: u8,
     },
     Range {
         cs: Vec<u8>,
+    },
+    Not {
+        not_re: Box<RegExpr>,
     },
     Either {
         l_re: Box<RegExpr>,
@@ -38,6 +38,46 @@ pub(crate) enum RegExpr {
     Seq {
         re_xs: Vec<RegExpr>,
     },
+}
+
+impl RegExpr {
+    fn case_insensitive(self) -> Self {
+        match self {
+            Self::Char { c } => Self::Range {
+                cs: case_insensitive(c),
+            },
+            Self::Not { not_re } => Self::Not {
+                not_re: Box::new(not_re.case_insensitive()),
+            },
+            Self::Either { l_re, r_re } => Self::Either {
+                l_re: Box::new(l_re.case_insensitive()),
+                r_re: Box::new(r_re.case_insensitive()),
+            },
+            Self::Optional { opt_re } => Self::Optional {
+                opt_re: Box::new(opt_re.case_insensitive()),
+            },
+            Self::Repeated { repeat_re, at_least, at_most } => Self::Repeated {
+                repeat_re: Box::new(repeat_re.case_insensitive()),
+                at_least,
+                at_most,
+            },
+            Self::Seq { re_xs } => Self::Seq {
+                re_xs: re_xs.into_iter().map(|re| re.case_insensitive()).collect(),
+            },
+            _ => self,
+        }
+    }
+}
+
+fn case_insensitive(x: u8) -> Vec<u8> {
+    let c = u8_to_char(x);
+    if c.is_ascii_lowercase() {
+        return vec![x, c.to_ascii_uppercase() as u8];
+    }
+    if c.is_ascii_uppercase() {
+        return vec![x, c.to_ascii_lowercase() as u8];
+    }
+    vec![x]
 }
 
 pub(crate) fn u8_to_char(c: u8) -> char {
@@ -104,26 +144,36 @@ impl fmt::Debug for RegExpr {
 }
 
 pub(crate) fn parse(pattern: &str) -> Result<RegExpr> {
-    let (parsed, unparsed) = between(
-        byte(b'/'),
-        byte(b'/'),
-        (optional(byte(b'^')), regex(), optional(byte(b'$'))),
-    )
-    .map(|(sof, re, eof)| {
-        if sof.is_none() && eof.is_none() {
-            return re;
-        }
-        let mut re_xs = vec![];
-        if sof.is_some() {
-            re_xs.push(RegExpr::SOF);
-        }
-        re_xs.push(re);
-        if eof.is_some() {
-            re_xs.push(RegExpr::EOF);
-        }
-        RegExpr::Seq { re_xs }
-    })
-    .parse(pattern.as_bytes())?;
+    let (parsed, unparsed) = ((
+        between(
+            byte(b'/'),
+            byte(b'/'),
+            (optional(byte(b'^')), regex(), optional(byte(b'$'))),
+        )
+        .map(|(sof, re, eof)| {
+            if sof.is_none() && eof.is_none() {
+                return re;
+            }
+            let mut re_xs = vec![];
+            if sof.is_some() {
+                re_xs.push(RegExpr::SOF);
+            }
+            re_xs.push(re);
+            if eof.is_some() {
+                re_xs.push(RegExpr::EOF);
+            }
+            RegExpr::Seq { re_xs }
+        }),
+        optional(byte(b'i')),
+    ))
+        .map(|(re, case_insensitive)| {
+            if case_insensitive.is_some() {
+                re.case_insensitive()
+            } else {
+                re
+            }
+        })
+        .parse(pattern.as_bytes())?;
     if !unparsed.is_empty() {
         return Err(anyhow!(
             "failed to parse regular expression, unexpected token at start of: {}",
@@ -481,6 +531,17 @@ mod tests {
             RegExpr::EOF,
         ]};
         "<sof><not <between a and d>><eof>")]
+    #[test_case("/^abc$/i",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Seq {re_xs: vec![
+                RegExpr::Range { cs: vec![b'a', b'A'] },
+                RegExpr::Range { cs: vec![b'b', b'B'] },
+                RegExpr::Range { cs: vec![b'c', b'C'] },
+            ]},
+            RegExpr::EOF,
+        ]};
+        "<sof>abc<eof> (case insensitive)")]
     #[test_case("/^/",
         RegExpr::Seq {re_xs: vec![
             RegExpr::SOF,
