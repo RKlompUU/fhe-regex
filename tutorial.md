@@ -14,7 +14,7 @@ let (client_key, server_key) = gen_keys();
 ```
 
 Encrypt the content, this generates a `StringCiphertext` from a `&str`. The
-content can only contain ascii characters, if there is any non-ascii symbols
+content can only contain ascii characters, if there are any non-ascii symbols
 present `encrypt_str` below will throw an error:
 
 ```rust
