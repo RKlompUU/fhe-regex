@@ -176,7 +176,13 @@ where
     Input: Stream<Token = u8>,
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,
 {
-    many(factor()).map(|re_xs: Vec<RegExpr>| if re_xs.len() == 1 { re_xs[0].clone() } else { RegExpr::Seq { re_xs } })
+    many(factor()).map(|re_xs: Vec<RegExpr>| {
+        if re_xs.len() == 1 {
+            re_xs[0].clone()
+        } else {
+            RegExpr::Seq { re_xs }
+        }
+    })
 }
 
 fn factor<Input>() -> impl Parser<Input, Output = RegExpr>
@@ -289,95 +295,76 @@ fn parse_digits(digits: &[u8]) -> usize {
     std::str::from_utf8(digits).unwrap().parse().unwrap()
 }
 
-#[test]
-fn test_parser() {
-    struct TestCase {
-        name: String,
-        pattern: String,
-        exp: RegExpr,
-    }
+#[cfg(test)]
+mod tests {
+    use crate::regex::parser::{parse, RegExpr};
+    use test_case::test_case;
 
-    let seq = |re_xs| RegExpr::Seq { re_xs };
-
-    let tcs: Vec<TestCase> = vec![
-        TestCase {
-            name: "SOF encapsulates full RHS".to_string(),
-            pattern: "/^ab|cd/".to_string(),
-            exp: seq(vec![
-                RegExpr::SOF,
-                RegExpr::Either {
-                    l_re: Box::new(seq(vec![
-                        RegExpr::Char { c: b'a' },
-                        RegExpr::Char { c: b'b' },
-                    ])),
-                    r_re: Box::new(seq(vec![
-                        RegExpr::Char { c: b'c' },
-                        RegExpr::Char { c: b'd' },
-                    ])),
-                },
-            ]),
-        },
-        TestCase {
-            name: "EOF encapsulates full RHS".to_string(),
-            pattern: "/ab|cd$/".to_string(),
-            exp: seq(vec![
-                RegExpr::Either {
-                    l_re: Box::new(seq(vec![
-                        RegExpr::Char { c: b'a' },
-                        RegExpr::Char { c: b'b' },
-                    ])),
-                    r_re: Box::new(seq(vec![
-                        RegExpr::Char { c: b'c' },
-                        RegExpr::Char { c: b'd' },
-                    ])),
-                },
-                RegExpr::EOF,
-            ]),
-        },
-        TestCase {
-            name: "SOF + EOF both encapsulate full center".to_string(),
-            pattern: "/^ab|cd$/".to_string(),
-            exp: seq(vec![
-                RegExpr::SOF,
-                RegExpr::Either {
-                    l_re: Box::new(seq(vec![
-                        RegExpr::Char { c: b'a' },
-                        RegExpr::Char { c: b'b' },
-                    ])),
-                    r_re: Box::new(seq(vec![
-                        RegExpr::Char { c: b'c' },
-                        RegExpr::Char { c: b'd' },
-                    ])),
-                },
-                RegExpr::EOF,
-            ]),
-        },
-        TestCase {
-            name: "escaping, simple".to_string(),
-            pattern: "/\\^/".to_string(),
-            exp: RegExpr::Char { c: b'^' },
-        },
-        TestCase {
-            name: "escaping, more realistic".to_string(),
-            pattern: "/^ca\\^b$/".to_string(),
-            exp: seq(vec![
-                RegExpr::SOF,
-                seq(vec![
-                    RegExpr::Char { c: b'c' },
+    #[test_case("/^ab|cd/",
+        RegExpr::Seq { re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Either {
+                l_re: Box::new(RegExpr::Seq { re_xs: vec![
                     RegExpr::Char { c: b'a' },
-                    RegExpr::Char { c: b'^' },
                     RegExpr::Char { c: b'b' },
-                ]),
-                RegExpr::EOF,
-            ]),
-        },
-    ];
-
-    for tc in tcs {
-        println!("test case: {}", tc.name);
-        match parse(&tc.pattern) {
-            Ok(got) => assert_eq!(tc.exp, got),
-            Err(e) => panic!("{}", e),
+                ] }),
+                r_re: Box::new(RegExpr::Seq { re_xs: vec![
+                    RegExpr::Char { c: b'c' },
+                    RegExpr::Char { c: b'd' },
+                ]}),
+            },
+        ]};
+        "SOF encapsulates full RHS")]
+    #[test_case("/ab|cd$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::Either {
+                l_re: Box::new(RegExpr::Seq {re_xs: vec![
+                    RegExpr::Char { c: b'a' },
+                    RegExpr::Char { c: b'b' },
+                ]}),
+                r_re: Box::new(RegExpr::Seq {re_xs: vec![
+                    RegExpr::Char { c: b'c' },
+                    RegExpr::Char { c: b'd' },
+                ]}),
+            },
+            RegExpr::EOF,
+        ]};
+        "EOF encapsulates full RHS" )]
+    #[test_case("/^ab|cd$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Either {
+                l_re: Box::new(RegExpr::Seq {re_xs: vec![
+                    RegExpr::Char { c: b'a' },
+                    RegExpr::Char { c: b'b' },
+                ]}),
+                r_re: Box::new(RegExpr::Seq {re_xs: vec![
+                    RegExpr::Char { c: b'c' },
+                    RegExpr::Char { c: b'd' },
+                ]}),
+            },
+            RegExpr::EOF,
+        ]};
+        "SOF + EOF both encapsulate full center")]
+    #[test_case("/\\^/",
+        RegExpr::Char { c: b'^' };
+        "escaping, simple")]
+    #[test_case("/^ca\\^b$/",
+        RegExpr::Seq {re_xs: vec![
+            RegExpr::SOF,
+            RegExpr::Seq {re_xs: vec![
+                RegExpr::Char { c: b'c' },
+                RegExpr::Char { c: b'a' },
+                RegExpr::Char { c: b'^' },
+                RegExpr::Char { c: b'b' },
+            ]},
+            RegExpr::EOF,
+        ]};
+        "escaping, more realistic")]
+    fn test_parser(pattern: &str, exp: RegExpr) {
+        match parse(pattern) {
+            Ok(got) => assert_eq!(exp, got),
+            Err(e) => panic!("got err: {}", e),
         }
     }
 }

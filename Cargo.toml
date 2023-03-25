@@ -10,3 +10,6 @@ anyhow = "*"
 nom = "*"
 env_logger = "*"
 log = "*"
+
+[dev-dependencies]
+test-case = "*"
