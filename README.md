@@ -14,7 +14,7 @@ the content the pattern matched).
 
 The binary produced here serves as a basic demo. Simply call it with first
 argument the content string and second argument the pattern string. For
-example, `cargo run -- 'this is the content' '/^pattern$/`; though it's
+example, `cargo run -- 'this is the content' '/^pattern$/'`; though it's
 advicable to first compile an executable with `cargo install --path .` as the
 key generation and homomorphic operations seem to experience a heavy
 performance penalty when running with `cargo run`.
@@ -27,6 +27,35 @@ using the private key and prints it to the console (0 for false, 1 for true).
 To get some more information on what exactly it is doing, set the `RUST_LOG`
 environment variable to `debug` or to `trace`, ie: `RUST_LOG=debug cargo run --
 'text' '/^text$/'`.
+
+## Supported regex constructs
+
+Here's a list to give some ideas of what's supported:
+- Contains matching: `/abc/` only matches with strings containing abc (e.g., abc, 123abc, abc123, 123abc456)
+- Start matching: `/^abc/` only matches strings starting with abc (e.g., abc, abc123)
+- End matching: `/abc$/` only matches strings ending with abc (e.g., abc, 123abc)
+- Exact matching: `/^abc$/` only matches the string abc
+- Case-insensitive matching: `/^abc$/i` only matches with abc, Abc, aBc, abC, ABc, aBC, AbC, ABC
+- Optional matching: `/^ab?c$/` only matches with abc, ac
+- Zero or more matching: `/^ab*c$/` only matches with ac, abc, abbc, abbbc and so on
+- One or more matching: /^ab+c$/ only matches with abc, abbc, abbbc and so on
+- Numbered matching: 
+  * `/^ab{2}c$/` only matches with abbc
+  * `/^ab{3,}c$/` only matches with abbbc, abbbbc, abbbbbc and so on
+  * `/^ab{2,4}c$/` only matches with abbc, abbbc, abbbbc
+- Alternative matching: `/^ab|cd$/` only matches with ab and cd
+- Any character matching: `/^.$/` only matches with a, b, A, B, ? and so on
+- Character range matching: 
+  * `/^[abc]$/` only matches with a, b and c
+  * `/^[a-d]$/` only matches with a, b, c and d
+- Character range not matching: 
+  * `/^[^abc]$/` only doesn't match with a, b and c
+  * `/^[^a-d]$/` only doesn't match with a, b, c and d
+- Escaping special characters: 
+  * `/^\.$/` only matches with .
+  * `/^\*$/` only matches with *
+  * Same for all special characters used above (e.g., [, ], $ and so on)
+- and any combination of the features above
 
 ## Internals
 
