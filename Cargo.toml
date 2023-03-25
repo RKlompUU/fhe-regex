@@ -14,3 +14,7 @@ log = "*"
 [dev-dependencies]
 test-case = "*"
 lazy_static = "*"
+bincode = "1.3.3"
+
+[features]
+gen_test_keys = []

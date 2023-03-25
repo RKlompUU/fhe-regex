@@ -218,11 +218,39 @@ mod tests {
     use crate::regex::engine::has_match;
     use test_case::test_case;
 
-    use crate::regex::ciphertext::{encrypt_str, gen_keys};
+    use tfhe::integer::{ServerKey, RadixClientKey};
+    use crate::regex::ciphertext::{create_trivial_radix, gen_keys, StringCiphertext};
+    use bincode;
     use lazy_static::lazy_static;
+    use std::io::Write;
 
     lazy_static! {
-        pub static ref KEYS: (tfhe::integer::RadixClientKey, tfhe::integer::ServerKey) = gen_keys();
+        pub static ref KEYS: (RadixClientKey, ServerKey) = setup_test_keys();
+    }
+
+    fn setup_test_keys() -> (RadixClientKey, ServerKey) {
+        #[cfg(feature = "gen_test_keys")]
+        generate_test_keys();
+        read_test_keys()
+    }
+
+    #[allow(dead_code)]
+    fn generate_test_keys() {
+        let (client_key, _) = gen_keys();
+
+        let mut serialized_data = Vec::new();
+        bincode::serialize_into(&mut serialized_data, &client_key).unwrap();
+        let mut file = std::fs::File::create("test_data/client_key")
+            .unwrap();
+        file.write_all(&serialized_data).unwrap();
+    }
+
+    fn read_test_keys() -> (RadixClientKey, ServerKey) {
+        let serialized_data = std::fs::read("test_data/client_key").unwrap();
+        let client_key: RadixClientKey = bincode::deserialize_from(serialized_data.as_slice()).unwrap();
+
+        let server_key = ServerKey::new(&client_key);
+        (client_key, server_key)
     }
 
     #[test_case("ab", "/ab/", 1)]
@@ -243,7 +271,11 @@ mod tests {
     #[test_case("cdbc", "/a+bc/", 0)]
     #[test_case("bc", "/a+bc/", 0)]
     fn test_has_match(content: &str, pattern: &str, exp: u64) {
-        let ct_content = encrypt_str(&KEYS.0, content).unwrap();
+        let ct_content: StringCiphertext = content
+            .as_bytes()
+            .iter()
+            .map(|byte| create_trivial_radix(&KEYS.1, *byte as u64))
+            .collect();
         let ct_res = has_match(&KEYS.1, &ct_content, pattern).unwrap();
 
         let got = KEYS.0.decrypt(&ct_res);

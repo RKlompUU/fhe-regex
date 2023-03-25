@@ -204,7 +204,7 @@ impl Execution {
 
     pub(crate) fn ct_constant(&self, c: u8) -> ExecutedResult {
         (
-            create_trivial_radix(&self.sk, c as u64, 2, 4),
+            create_trivial_radix(&self.sk, c as u64),
             Executed::Constant { c },
         )
     }

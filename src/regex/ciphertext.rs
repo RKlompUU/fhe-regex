@@ -8,9 +8,10 @@ pub type StringCiphertext = Vec<RadixCiphertext>;
 pub fn create_trivial_radix(
     server_key: &ServerKey,
     msg: u64,
-    block_size: usize,
-    num_blocks: usize,
 ) -> RadixCiphertext {
+    let block_size = 2;
+    let num_blocks = 4;
+
     let shortkey = tfhe::shortint::ServerKey::from(server_key.clone());
 
     let mut vec_res = Vec::with_capacity(num_blocks);
