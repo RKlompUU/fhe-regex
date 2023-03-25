@@ -222,7 +222,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "fhe"
+name = "fhe-regex"
 version = "0.1.0"
 dependencies = [
  "anyhow",

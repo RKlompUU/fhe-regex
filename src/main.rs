@@ -2,7 +2,6 @@
 extern crate log;
 
 mod regex;
-mod trials;
 
 use std::env;
 use env_logger::Env;

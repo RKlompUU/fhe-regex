@@ -71,7 +71,9 @@ impl Execution {
             Rc::new(move |exec: &mut Execution| {
                 exec.ct_ops += 1;
 
-                (exec.sk.unchecked_eq(&a.0, &b.0), ctx.clone())
+                let mut ct_a = a.0.clone();
+                let mut ct_b = b.0.clone();
+                (exec.sk.smart_eq(&mut ct_a, &mut ct_b), ctx.clone())
             }),
         )
     }
@@ -86,7 +88,9 @@ impl Execution {
             Rc::new(move |exec| {
                 exec.ct_ops += 1;
 
-                (exec.sk.unchecked_ge(&a.0, &b.0), ctx.clone())
+                let mut ct_a = a.0.clone();
+                let mut ct_b = b.0.clone();
+                (exec.sk.smart_gt(&mut ct_a, &mut ct_b), ctx.clone())
             }),
         )
     }
@@ -101,7 +105,9 @@ impl Execution {
             Rc::new(move |exec| {
                 exec.ct_ops += 1;
 
-                (exec.sk.unchecked_le(&a.0, &b.0), ctx.clone())
+                let mut ct_a = a.0.clone();
+                let mut ct_b = b.0.clone();
+                (exec.sk.smart_le(&mut ct_a, &mut ct_b), ctx.clone())
             }),
         )
     }
@@ -132,7 +138,9 @@ impl Execution {
             Rc::new(move |exec| {
                 exec.ct_ops += 1;
 
-                (exec.sk.unchecked_bitand(&a.0, &b.0), ctx.clone())
+                let mut ct_a = a.0.clone();
+                let mut ct_b = b.0.clone();
+                (exec.sk.smart_bitand(&mut ct_a, &mut ct_b), ctx.clone())
             }),
         )
     }
@@ -160,7 +168,9 @@ impl Execution {
             Rc::new(move |exec| {
                 exec.ct_ops += 1;
 
-                (exec.sk.unchecked_bitor(&a.0, &b.0), ctx.clone())
+                let mut ct_a = a.0.clone();
+                let mut ct_b = b.0.clone();
+                (exec.sk.smart_bitor(&mut ct_a, &mut ct_b), ctx.clone())
             }),
         )
     }
@@ -174,8 +184,10 @@ impl Execution {
             Rc::new(move |exec| {
                 exec.ct_ops += 1;
 
+                let mut ct_a = a.0.clone();
+                let mut ct_b = exec.ct_constant(1).0;
                 (
-                    exec.sk.unchecked_bitxor(&a.0, &exec.ct_constant(1).0),
+                    exec.sk.smart_bitxor(&mut ct_a, &mut ct_b),
                     ctx.clone(),
                 )
             }),
