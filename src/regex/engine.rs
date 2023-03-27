@@ -254,7 +254,9 @@ mod tests {
     }
 
     #[test_case("ab", "/ab/", 1)]
+    #[test_case("b", "/ab/", 0)]
     #[test_case("ab", "/a?b/", 1)]
+    #[test_case("b", "/a?b/", 1)]
     #[test_case("ab", "/^ab|cd$/", 1)]
     #[test_case(" ab", "/^ab|cd$/", 0)]
     #[test_case(" cd", "/^ab|cd$/", 0)]
@@ -270,10 +272,12 @@ mod tests {
     #[test_case("cdaabc", "/a*bc/", 1)]
     #[test_case("cdbc", "/a+bc/", 0)]
     #[test_case("bc", "/a+bc/", 0)]
-    #[test_case("Ab", "/ab/i", 1)]
-    #[test_case("Ab", "/ab/", 0)]
+    #[test_case("Ab", "/ab/i", 1 ; "ab case insensitive")]
+    #[test_case("Ab", "/ab/", 0 ; "ab case sensitive")]
     #[test_case("cD", "/ab|cd/i", 1)]
     #[test_case("cD", "/cD/", 1)]
+    #[test_case("de", "/^ab|cd|de$/", 1 ; "multiple or")]
+    #[test_case(" de", "/^ab|cd|de$/", 0 ; "multiple or nests below ^")]
     fn test_has_match(content: &str, pattern: &str, exp: u64) {
         let ct_content: StringCiphertext = content
             .as_bytes()
